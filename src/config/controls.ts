@@ -72,7 +72,7 @@ export const ACTION_META: Array<{ key: BindableAction; label: string; tip: strin
   { key: 'left', label: '向左移动', tip: '控制角色往左走' },
   { key: 'right', label: '向右移动', tip: '控制角色往右走' },
   { key: 'jump', label: '跳跃 / 蹬墙跳', tip: '二段跳与贴墙反跳' },
-  { key: 'down', label: '下蹲 / 穿下平台', tip: '配合跳跃可从浮空台下落' },
+  { key: 'down', label: '下蹲 / 穿下平台', tip: '双击下蹲或下蹲+跳跃可从浮空台阶下落' },
   { key: 'up', label: '上挑方向', tip: '按住此键 + 快攻释放挑飞浮空技' },
   { key: 'light', label: '快攻 / 三连斩', tip: '连续按打出三段连招' },
   { key: 'heavy', label: '蓄力 / 破防重击', tip: '长按蓄力，松开破防并释放文具投射/机关' },

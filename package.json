@@ -3,7 +3,7 @@
   "description": "草稿纸大乱斗 & 几何乱斗 (Scratchpad & Geometry Brawl) — Windows stickman brawler built with TypeScript, HTML5 Canvas 2D, Web Audio, and .NET 8 WebView2",
   "author": "可乐加冰 (keilv5c) & Gemini",
   "license": "MIT",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "type": "module",
   "repository": {
     "type": "git",
@@ -11,12 +11,14 @@
   },
   "scripts": {
     "dev": "vite",
+    "film": "vite --open /film.html",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "update:exe": "powershell -ExecutionPolicy Bypass -File scripts/update-exe.ps1",
     "build:exe": "powershell -ExecutionPolicy Bypass -File scripts/update-exe.ps1 -RebuildShell"
   },
   "devDependencies": {
+    "mp4-muxer": "^5.2.2",
     "typescript": "^5.7.3",
     "vite": "^6.1.0"
   }

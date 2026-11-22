@@ -200,7 +200,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       },
       heavy: {
         id: 'heavy', name: '猛力擦除震地', startup: 14, active: 8, recovery: 22,
-        damage: 26, chipDamage: 9, knockbackX: 760, knockbackY: -320, hitstop: 0.11, hitstun: 36,
+        damage: 22, chipDamage: 7, knockbackX: 760, knockbackY: -320, hitstop: 0.11, hitstun: 36,
         reach: 142, height: 96, offsetY: -46, lungeX: 310, guardBreak: true, superArmor: true,
         spawnsProjectile: 'shockwave', smearStyle: 'hammer', onomatopoeia: '擦崩!', whooshWeight: 1.35,
       },
@@ -465,7 +465,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       },
       heavy: {
         id: 'heavy', name: '满口咔嚓·必杀剪断', startup: 11, active: 6, recovery: 19,
-        damage: 28, chipDamage: 9, knockbackX: 720, knockbackY: -290, hitstop: 0.115, hitstun: 36,
+        damage: 24, chipDamage: 7, knockbackX: 720, knockbackY: -290, hitstop: 0.115, hitstun: 36,
         reach: 108, height: 86, offsetY: -46, lungeX: 380, guardBreak: true, superArmor: true,
         smearStyle: 'snip', onomatopoeia: '咔嚓断!!', whooshWeight: 1.05,
       },

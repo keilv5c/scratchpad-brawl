@@ -15,6 +15,7 @@ import { WORLD_HEIGHT, WORLD_WIDTH } from '../config/stages';
 
 const BUFFER_FRAMES = 9;
 const TRIGGER_THRESHOLD = 0.35;
+const DOUBLE_TAP_DOWN_MS = 320;
 
 interface RawChannelState {
   left: boolean;
@@ -66,6 +67,7 @@ export function createEmptyInput(): InputState {
     blockPressed: 0,
     dashPressed: 0,
     superPressed: 0,
+    dropThroughPressed: 0,
   };
 }
 
@@ -77,6 +79,7 @@ export function decayInputBuffers(inp: InputState): void {
   if (inp.blockPressed > 0) inp.blockPressed--;
   if (inp.dashPressed > 0) inp.dashPressed--;
   if (inp.superPressed > 0) inp.superPressed--;
+  if (inp.dropThroughPressed > 0) inp.dropThroughPressed--;
 }
 
 export class KeyboardInputManager {
@@ -104,6 +107,8 @@ export class KeyboardInputManager {
   private prevGpButtons: Record<number, boolean[]> = {};
   private prevGpStickUp: Record<number, boolean> = {};
   private prevCompositeHeavy: [boolean, boolean] = [false, false];
+  private prevCompositeDown: [boolean, boolean] = [false, false];
+  private lastDownTapMs: [number, number] = [0, 0];
 
   // Anti-ghost-walk & anti-stuck-axis telemetry
   private gpSeen = new Set<number>();
@@ -333,6 +338,8 @@ export class KeyboardInputManager {
     this.gpRaws[2] = createEmptyRaw();
     this.gpRaws[3] = createEmptyRaw();
     this.prevCompositeHeavy = [false, false];
+    this.prevCompositeDown = [false, false];
+    this.lastDownTapMs = [0, 0];
     this.p1 = createEmptyInput();
     this.p2 = createEmptyInput();
   }
@@ -684,6 +691,7 @@ export class KeyboardInputManager {
     }
 
     const wasHeavy = this.prevCompositeHeavy[playerIdx];
+    const wasDown = this.prevCompositeDown[playerIdx];
     out.left = left;
     out.right = right;
     out.up = up;
@@ -698,6 +706,18 @@ export class KeyboardInputManager {
       out.heavyReleased = BUFFER_FRAMES;
     }
     this.prevCompositeHeavy[playerIdx] = heavy;
+
+    // Double-tap Down (S×2 / ↓×2 / Gamepad Down×2) triggers clean drop-through on one-way platforms!
+    if (!wasDown && down) {
+      const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (this.lastDownTapMs[playerIdx] > 0 && nowMs - this.lastDownTapMs[playerIdx] <= DOUBLE_TAP_DOWN_MS) {
+        out.dropThroughPressed = BUFFER_FRAMES;
+        this.lastDownTapMs[playerIdx] = 0;
+      } else {
+        this.lastDownTapMs[playerIdx] = nowMs;
+      }
+    }
+    this.prevCompositeDown[playerIdx] = down;
   }
 
   // ==================== KEYBOARD & MOUSE HANDLING ====================

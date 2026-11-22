@@ -1,4 +1,4 @@
-import { ArcadeMaster, InputState, TrainingDummyMode, Vec2 } from '../types';
+import { ArcadeMaster, InputState, PlatformDef, TrainingDummyMode } from '../types';
 import { createEmptyInput } from '../engine/input';
 import { Fighter } from '../combat/fighter';
 import { WeaponPickup } from '../combat/arenaObjects';
@@ -17,6 +17,8 @@ export class AiBrain {
   private attackCooldown = 0;
   private bossSkillTimer = 5.5;
   private trainingAttackTimer = 1.4;
+  private platformActionCd = 0;
+  private climbTargetY: number | null = null;
   private strafeDir: -1 | 0 | 1 = 0;
 
   private profile: ArcadeMaster | null = null;
@@ -34,6 +36,8 @@ export class AiBrain {
     this.attackCooldown = 0.35;
     this.bossSkillTimer = 5.0;
     this.trainingAttackTimer = 1.2;
+    this.platformActionCd = 0.4;
+    this.climbTargetY = null;
   }
 
   public update(
@@ -43,7 +47,9 @@ export class AiBrain {
     pickups: WeaponPickup[],
     isTraining: boolean,
     dummyMode: TrainingDummyMode,
-    onBossSkill?: (trigger: BossAbilityTrigger) => void
+    onBossSkill?: (trigger: BossAbilityTrigger) => void,
+    platforms: PlatformDef[] = [],
+    brokenPlatforms?: Set<string>
   ): InputState {
     // Clear one-frame edge buffers before writing new decisions
     this.input.left = false;
@@ -53,6 +59,8 @@ export class AiBrain {
     this.input.light = false;
     this.input.dash = false;
     this.input.superBtn = false;
+    if (this.input.dropThroughPressed > 0) this.input.dropThroughPressed--;
+    if (this.platformActionCd > 0) this.platformActionCd -= dt;
 
     // Training dummy specialized behaviors
     if (isTraining) {
@@ -162,13 +170,29 @@ export class AiBrain {
       }
     }
 
-    // Avoid pitfall gaps on bridge stage!
-    if (self.pos.y > 590 && !self.onGround && self.jumpsLeft > 0) {
+    // Avoid pitfall gaps (only when actually falling below floor level y > 658, never on normal jumps!)
+    if (self.pos.y > 658 && self.vel.y > 0 && !self.onGround && self.jumpsLeft > 0) {
       this.input.up = true;
       this.input.jumpPressed = 6;
       if (self.pos.x < 640) this.input.right = true;
       else this.input.left = true;
       return this.input;
+    }
+
+    // Clear climb target once we land or rise above it
+    if (self.onGround || (this.climbTargetY !== null && self.pos.y <= this.climbTargetY - 10)) {
+      this.climbTargetY = null;
+    }
+
+    // Mid-air double-jump follow-up when climbing up to clear a platform (Jump #1 peaks ~120px, platforms are ~150px!)
+    if (
+      !self.onGround &&
+      self.jumpsLeft > 0 &&
+      self.vel.y > -120 &&
+      (dy < -12 || (this.climbTargetY !== null && self.pos.y > this.climbTargetY - 8))
+    ) {
+      this.input.up = true;
+      this.input.jumpPressed = 6;
     }
 
     // Decision tick
@@ -186,10 +210,15 @@ export class AiBrain {
       // Check for nearby sketched weapon pickup opportunistically
       if (pickups.length > 0 && Math.random() < 0.22) {
         const pk = pickups[0];
-        if (Math.hypot(pk.pos.x - self.pos.x, pk.pos.y - self.pos.y) < 220) {
+        if (Math.hypot(pk.pos.x - self.pos.x, pk.pos.y - self.pos.y) < 230) {
           this.strafeDir = pk.pos.x > self.pos.x ? 1 : -1;
           if (pk.pos.y < self.pos.y - 60 && self.onGround) {
+            this.input.up = true;
             this.input.jumpPressed = 6;
+            this.climbTargetY = pk.pos.y;
+          } else if (pk.pos.y > self.pos.y + 68 && self.onGround && self.onOneWayPlatform && this.platformActionCd <= 0) {
+            this.input.dropThroughPressed = 6;
+            this.platformActionCd = 0.55;
           }
           return this.input;
         }
@@ -209,10 +238,67 @@ export class AiBrain {
         this.strafeDir = Math.random() < 0.5 ? (dx > 0 ? 1 : -1) : 0;
       }
 
-      // Jump to chase aerial target or climb platforms
-      if (dy < -75 && self.onGround && Math.random() < 0.55) {
-        this.input.up = true;
-        this.input.jumpPressed = 6;
+      // Smart Platform Navigation: actively DROP DOWN or CLIMB UP one-way platforms!
+      const usableOneWay = platforms.filter(
+        (p) => p.oneWay && !p.pillar && !p.bouncePad && !(brokenPlatforms?.has(p.id))
+      );
+      if (self.onGround && this.platformActionCd <= 0) {
+        if (self.onOneWayPlatform && dy > 70 && Math.random() < 0.72 + diff * 0.22) {
+          // Target is below us: drop cleanly through the platform!
+          this.input.dropThroughPressed = 6;
+          this.platformActionCd = 0.52;
+        } else if (dy < -65) {
+          // Target is higher: jump onto an intermediate/target platform!
+          let bestPlat: PlatformDef | null = null;
+          let bestScore = Infinity;
+          for (const p of usableOneWay) {
+            if (p.y < self.pos.y - 35 && p.y > self.pos.y - 255) {
+              const cx = p.x + p.w * 0.5;
+              const score = Math.abs(cx - target.pos.x) * 0.65 + Math.abs(cx - self.pos.x) * 0.5;
+              if (score < bestScore) {
+                bestScore = score;
+                bestPlat = p;
+              }
+            }
+          }
+          if (bestPlat) {
+            const margin = 48;
+            if (self.pos.x < bestPlat.x - margin) {
+              this.strafeDir = 1;
+            } else if (self.pos.x > bestPlat.x + bestPlat.w + margin) {
+              this.strafeDir = -1;
+            } else if (Math.random() < 0.72 + diff * 0.2) {
+              this.input.up = true;
+              this.input.jumpPressed = 6;
+              this.climbTargetY = bestPlat.y;
+              this.platformActionCd = 0.48;
+            }
+          } else if (Math.random() < 0.65) {
+            this.input.up = true;
+            this.input.jumpPressed = 6;
+            this.climbTargetY = target.pos.y;
+            this.platformActionCd = 0.48;
+          }
+        } else if (self.onOneWayPlatform && Math.random() < 0.14) {
+          // Occasional tactical drop-down to keep vertical spacing dynamic
+          this.input.dropThroughPressed = 6;
+          this.platformActionCd = 1.6;
+        } else if (!self.onOneWayPlatform && Math.random() < 0.18) {
+          // Proactively hop up onto a nearby overhead platform to take high ground!
+          const overhead = usableOneWay.find(
+            (p) =>
+              p.y < self.pos.y - 55 &&
+              p.y > self.pos.y - 210 &&
+              self.pos.x >= p.x - 42 &&
+              self.pos.x <= p.x + p.w + 42
+          );
+          if (overhead) {
+            this.input.up = true;
+            this.input.jumpPressed = 6;
+            this.climbTargetY = overhead.y;
+            this.platformActionCd = 2.0;
+          }
+        }
       }
 
       // Offense in range!

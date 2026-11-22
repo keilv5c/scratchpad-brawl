@@ -100,6 +100,7 @@ class MathFighter {
   public animPhase = 0;
 
   public onGround = false;
+  public onOneWayPlatform = false;
   public coyoteFrames = 0;
   public jumpsLeft = 2;
   public dropThroughFrames = 0;
@@ -497,6 +498,8 @@ export class MathGameManager {
 
   // Simple smart AI timers
   private aiDecisionTimer = 0;
+  private aiPlatformCd = 0;
+  private aiClimbTargetY: number | null = null;
   private aiMoveDir: -1 | 0 | 1 = 0;
   private aiWantBlock = false;
   private aiDifficulty = 0.65;
@@ -878,6 +881,7 @@ export class MathGameManager {
     // Platform collisions
     const prevGround = f.onGround;
     f.onGround = false;
+    f.onOneWayPlatform = false;
     if (f.vel.y >= 0) {
       for (const p of GEO_PLATFORMS) {
         if (p.oneWay && f.dropThroughFrames > 0) continue;
@@ -886,6 +890,7 @@ export class MathGameManager {
             f.pos.y = p.y;
             f.vel.y = 0;
             f.onGround = true;
+            f.onOneWayPlatform = Boolean(p.oneWay);
             f.jumpsLeft = 2;
             f.coyoteFrames = 6;
             break;
@@ -1008,7 +1013,7 @@ export class MathGameManager {
 
       if (f.actionFrames === m.startup && !f.hasTriggeredActive) {
         f.hasTriggeredActive = true;
-        const chargeBoost = f.attackKind === 'heavy' ? 1 + f.lastChargeRatio * 0.4 : 1;
+        const chargeBoost = f.attackKind === 'heavy' ? 1 + f.lastChargeRatio * 0.26 : 1;
         f.vel.x = f.facing * m.lungeX * chargeBoost;
         if (m.lungeY) {
           f.vel.y = m.lungeY;
@@ -1110,14 +1115,24 @@ export class MathGameManager {
       if (Math.abs(f.vel.x) < 18) f.vel.x = 0;
     }
 
-    // Drop through one-way math bar
-    if (inp.down && inp.jumpPressed > 0 && f.onGround && f.pos.y < GEO_FLOOR_Y - 10) {
-      inp.jumpPressed = 0;
-      f.dropThroughFrames = 14;
-      f.pos.y += 4;
+    // Drop through one-way math bar (Double-tap Down S×2/↓×2 OR Down + Jump!)
+    if (
+      f.onGround &&
+      f.onOneWayPlatform &&
+      (inp.dropThroughPressed > 0 || (inp.down && inp.jumpPressed > 0))
+    ) {
+      if (inp.dropThroughPressed > 0) {
+        inp.dropThroughPressed = 0;
+      } else {
+        inp.jumpPressed = 0;
+      }
+      f.dropThroughFrames = 16;
+      f.pos.y += 5;
       f.onGround = false;
-      f.vel.y = 120;
+      f.onOneWayPlatform = false;
+      f.vel.y = 140;
       f.action = 'fall';
+      f.actionFrames = 0;
       return;
     }
 
@@ -1360,11 +1375,13 @@ export class MathGameManager {
     const baseAng = f.lastAimAngle ?? (f.facing > 0 ? 0 : Math.PI);
     const mod = this.consumeOperatorsAndCheckCombo(f, opp);
     const hasteSpd = f.derivHasteTimer > 0 ? 1.22 : 1.0;
-    const chargeBoost = 1 + f.lastChargeRatio * 0.32;
+    // Balanced charge boost (+26% max) & charge-aware Heavy cap: tap 17 -> full charge 22 (+4 with x²)
+    const chargeBoost = 1 + f.lastChargeRatio * 0.26;
     const sDef = MATH_SCHOOLS[f.school];
     const fanAngles = mod.countMult > 1 ? [-0.15, 0.15] : [0];
     const castId = `hvy_${mathUidCounter++}`;
-    const castCap = mod.hasPow2 ? 26 : 22;
+    const baseCap = Math.round(17 + f.lastChargeRatio * 5);
+    const castCap = mod.hasPow2 ? baseCap + 4 : baseCap;
     f.activeCastId = castId;
     f.activeCastCap = castCap;
 
@@ -1951,7 +1968,7 @@ export class MathGameManager {
 
       atk.attackHitIds.add(def.uid);
       const hitPos: Vec2 = { x: (atk.pos.x + def.pos.x) * 0.5, y: def.pos.y - 46 };
-      const chargeMult = atk.attackKind === 'heavy' ? 1 + atk.lastChargeRatio * 0.45 : 1;
+      const chargeMult = atk.attackKind === 'heavy' ? 1 + atk.lastChargeRatio * 0.26 : 1;
       const dmg = Math.round(m.damage * chargeMult);
 
       const isCastMove = atk.attackKind === 'heavy' || atk.attackKind === 'super';
@@ -2202,19 +2219,43 @@ export class MathGameManager {
     if (this.phase !== 'fighting' || this.p2.action === 'ko') return inp;
 
     this.aiDecisionTimer -= dt;
+    if (this.aiPlatformCd > 0) this.aiPlatformCd -= dt;
     const dx = this.p1.pos.x - this.p2.pos.x;
+    const dy = this.p1.pos.y - this.p2.pos.y;
     const dist = Math.abs(dx);
     const dirToP1: -1 | 1 = dx >= 0 ? 1 : -1;
+
+    if (this.p2.onGround || (this.aiClimbTargetY !== null && this.p2.pos.y <= this.aiClimbTargetY - 10)) {
+      this.aiClimbTargetY = null;
+    }
+
+    // Mid-air double-jump follow-up when climbing to clear higher math bars (Jump #1 peaks ~126px, bars are ~165px!)
+    if (
+      !this.p2.onGround &&
+      this.p2.jumpsLeft > 0 &&
+      this.p2.vel.y > -120 &&
+      (dy < -12 || (this.aiClimbTargetY !== null && this.p2.pos.y > this.aiClimbTargetY - 8))
+    ) {
+      inp.up = true;
+      inp.jumpPressed = 6;
+    }
 
     if (this.aiDecisionTimer <= 0) {
       this.aiDecisionTimer = 0.22 + (1 - this.aiDifficulty) * 0.25;
       this.aiWantBlock = false;
 
       // Seek nearby floating operator if close
-      const nearOp = this.pickups.find((pk) => Math.hypot(pk.pos.x - this.p2.pos.x, pk.pos.y - (this.p2.pos.y - 44)) < 220);
+      const nearOp = this.pickups.find((pk) => Math.hypot(pk.pos.x - this.p2.pos.x, pk.pos.y - (this.p2.pos.y - 44)) < 240);
       if (nearOp && this.p2.operators.length < 2 && Math.random() < 0.55) {
         this.aiMoveDir = nearOp.pos.x >= this.p2.pos.x ? 1 : -1;
-        if (nearOp.pos.y < this.p2.pos.y - 90) inp.jumpPressed = 4;
+        if (nearOp.pos.y < this.p2.pos.y - 80 && this.p2.onGround) {
+          inp.up = true;
+          inp.jumpPressed = 6;
+          this.aiClimbTargetY = nearOp.pos.y;
+        } else if (nearOp.pos.y > this.p2.pos.y + 65 && this.p2.onGround && this.p2.onOneWayPlatform && this.aiPlatformCd <= 0) {
+          inp.dropThroughPressed = 6;
+          this.aiPlatformCd = 0.52;
+        }
       } else if (dist > 260) {
         this.aiMoveDir = dirToP1;
       } else if (dist < 85) {
@@ -2223,16 +2264,78 @@ export class MathGameManager {
         this.aiMoveDir = Math.random() < 0.55 ? dirToP1 : 0;
       }
 
+      // Smart Platform Navigation on GEO_PLATFORMS (climb UP & drop DOWN actively!)
+      if (this.p2.onGround && this.aiPlatformCd <= 0) {
+        if (this.p2.onOneWayPlatform && dy > 68 && Math.random() < 0.72 + this.aiDifficulty * 0.22) {
+          // P1 is below us: drop down through the math bar!
+          inp.dropThroughPressed = 6;
+          this.aiPlatformCd = 0.52;
+        } else if (dy < -65) {
+          // P1 is higher: steer toward best one-way math bar and climb up!
+          let bestPlat: MathPlatformDef | null = null;
+          let bestScore = Infinity;
+          for (const p of GEO_PLATFORMS) {
+            if (!p.oneWay) continue;
+            if (p.y < this.p2.pos.y - 35 && p.y > this.p2.pos.y - 250) {
+              const cx = p.x + p.w * 0.5;
+              const score = Math.abs(cx - this.p1.pos.x) * 0.65 + Math.abs(cx - this.p2.pos.x) * 0.5;
+              if (score < bestScore) {
+                bestScore = score;
+                bestPlat = p;
+              }
+            }
+          }
+          if (bestPlat) {
+            const margin = 48;
+            if (this.p2.pos.x < bestPlat.x - margin) {
+              this.aiMoveDir = 1;
+            } else if (this.p2.pos.x > bestPlat.x + bestPlat.w + margin) {
+              this.aiMoveDir = -1;
+            } else if (Math.random() < 0.72 + this.aiDifficulty * 0.2) {
+              inp.up = true;
+              inp.jumpPressed = 6;
+              this.aiClimbTargetY = bestPlat.y;
+              this.aiPlatformCd = 0.48;
+            }
+          } else if (Math.random() < 0.65) {
+            inp.up = true;
+            inp.jumpPressed = 6;
+            this.aiClimbTargetY = this.p1.pos.y;
+            this.aiPlatformCd = 0.48;
+          }
+        } else if (this.p2.onOneWayPlatform && Math.random() < 0.15) {
+          // Tactical drop-down mixup
+          inp.dropThroughPressed = 6;
+          this.aiPlatformCd = 1.6;
+        } else if (!this.p2.onOneWayPlatform && Math.random() < 0.18) {
+          // Proactively hop up onto a nearby overhead math bar for elevation play!
+          const overhead = GEO_PLATFORMS.find(
+            (p) =>
+              p.oneWay &&
+              p.y < this.p2.pos.y - 55 &&
+              p.y > this.p2.pos.y - 220 &&
+              this.p2.pos.x >= p.x - 45 &&
+              this.p2.pos.x <= p.x + p.w + 45
+          );
+          if (overhead) {
+            inp.up = true;
+            inp.jumpPressed = 6;
+            this.aiClimbTargetY = overhead.y;
+            this.aiPlatformCd = 2.0;
+          }
+        }
+      }
+
       // Defensive reaction
-      if (this.p1.action === 'attack' && dist < 170 && Math.random() < this.aiDifficulty * 0.48) {
+      if (this.p1.action === 'attack' && dist < 170 && Math.abs(dy) < 90 && Math.random() < this.aiDifficulty * 0.48) {
         this.aiWantBlock = true;
         inp.blockPressed = 5;
       }
 
       // Super!
-      if (this.p2.energy >= this.p2.maxEnergy && dist < 440 && Math.random() < this.aiDifficulty * 0.65) {
+      if (this.p2.energy >= this.p2.maxEnergy && dist < 440 && Math.abs(dy) < 140 && Math.random() < this.aiDifficulty * 0.65) {
         inp.superPressed = 6;
-      } else if (dist < 130 && Math.random() < this.aiDifficulty * 0.72) {
+      } else if (dist < 130 && Math.abs(dy) < 85 && Math.random() < this.aiDifficulty * 0.72) {
         inp.lightPressed = 5;
       } else if (dist >= 160 && dist < 520 && Math.random() < this.aiDifficulty * 0.52) {
         inp.heavyPressed = 5;

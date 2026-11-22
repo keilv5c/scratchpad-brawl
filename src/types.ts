@@ -300,6 +300,7 @@ export interface InputState {
   blockPressed: number;
   dashPressed: number;
   superPressed: number;
+  dropThroughPressed: number;
 }
 
 export interface HudSnapshot {

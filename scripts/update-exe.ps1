@@ -1,7 +1,7 @@
 ﻿param(
   [switch]$RebuildShell,
-  [string]$Version = "0.3.2",
-  [string]$Notes = "v0.3.2: Eliminate AI-style outlined floating text in Geometry Brawl (authentic LaTeX/Cambria Math serif notation, zero faux-italic YaHei, zero sticker strokeText) + buttery-smooth zero-stutter hit flow (removed world-freezing hitstop & 30fps slow-mo, offscreen GPU glyph sprite cache, zero-allocation warped grid, 60Hz jitter snap)"
+  [string]$Version = "0.3.3",
+  [string]$Notes = "v0.3.3: Synced across BOTH Scratchpad Brawl & Geometry Brawl — double-tap Down (S×2 / ↓×2 / Gamepad Down×2) to drop cleanly through elevated platforms, smart AI platform climbing & dropping, and balanced Heavy charge scaling (+25%~28% over tap with strict per-cast caps)"
 )
 
 $ErrorActionPreference = "Stop"

@@ -43,6 +43,8 @@ export interface Projectile {
   returning?: boolean;
   gravity?: number;
   age: number;
+  castId?: string;
+  castCap?: number;
 }
 
 let projCounter = 1;
@@ -58,7 +60,9 @@ export function createProjectile(
   aimAngle?: number | null
 ): Projectile {
   const id = `proj_${projCounter++}`;
-  const boost = 1 + chargeRatio * 0.4;
+  // Balanced charge scaling: full charge grants +25% damage & +20% speed/kb (rewarding, never overtuned)
+  const dmgBoost = 1 + chargeRatio * 0.25;
+  const spdBoost = 1 + chargeRatio * 0.2;
   const dirAngle = aimAngle !== undefined && aimAngle !== null ? aimAngle : facing > 0 ? 0 : Math.PI;
   const vxDir = Math.cos(dirAngle);
   const vyDir = Math.sin(dirAngle);
@@ -67,25 +71,25 @@ export function createProjectile(
     case 'wave':
       return {
         id, ownerIndex, kind, pos: { ...pos },
-        vel: { x: vxDir * (650 * boost), y: vyDir * (650 * boost) },
+        vel: { x: vxDir * (650 * spdBoost), y: vyDir * (650 * spdBoost) },
         facing, angle: dirAngle, radius: 36, width: 48, height: 80,
-        damage: Math.round(13 * boost), knockbackX: 430 * boost, knockbackY: -180,
+        damage: Math.round(13 * dmgBoost), knockbackX: 430 * spdBoost, knockbackY: -180,
         color, accent, life: 0.72, maxLife: 0.72, rotation: dirAngle, hitIds: new Set(), age: 0,
       };
     case 'compass_arc':
       return {
         id, ownerIndex, kind, pos: { ...pos },
-        vel: { x: vxDir * (620 * boost), y: vyDir * (620 * boost) },
+        vel: { x: vxDir * (620 * spdBoost), y: vyDir * (620 * spdBoost) },
         facing, angle: dirAngle, radius: 42, width: 64, height: 92,
-        damage: Math.round(14 * boost), knockbackX: 450 * boost, knockbackY: -200,
+        damage: Math.round(14 * dmgBoost), knockbackX: 450 * spdBoost, knockbackY: -200,
         color, accent, life: 0.78, maxLife: 0.78, rotation: dirAngle, hitIds: new Set(), age: 0,
       };
     case 'whiteout_beam':
       return {
         id, ownerIndex, kind, pos: { ...pos },
-        vel: { x: vxDir * (700 * boost), y: vyDir * (700 * boost) },
+        vel: { x: vxDir * (700 * spdBoost), y: vyDir * (700 * spdBoost) },
         facing, angle: dirAngle, radius: 34, width: 92, height: 34,
-        damage: Math.round(12 * boost), knockbackX: 460 * boost, knockbackY: -160,
+        damage: Math.round(12 * dmgBoost), knockbackX: 460 * spdBoost, knockbackY: -160,
         color: '#ffffff', accent: '#2685d9', life: 0.75, maxLife: 0.75, rotation: dirAngle, hitIds: new Set(), age: 0,
       };
     case 'staple_bolt':
@@ -93,15 +97,15 @@ export function createProjectile(
         id, ownerIndex, kind, pos: { ...pos },
         vel: { x: vxDir * 880, y: vyDir * 880 },
         facing, angle: dirAngle, radius: 14, width: 28, height: 18,
-        damage: Math.round(7 * boost), knockbackX: 220, knockbackY: -90,
+        damage: Math.round(7 * dmgBoost), knockbackX: 220, knockbackY: -90,
         color: '#3f506e', accent: '#1e2430', life: 0.72, maxLife: 0.72, rotation: dirAngle, hitIds: new Set(), age: 0,
       };
     case 'ink_bomb':
       return {
         id, ownerIndex, kind, pos: { ...pos },
-        vel: { x: vxDir * (540 * boost), y: vyDir * (540 * boost) - 240 },
+        vel: { x: vxDir * (540 * spdBoost), y: vyDir * (540 * spdBoost) - 240 },
         facing, angle: dirAngle, radius: 26, width: 48, height: 48,
-        damage: Math.round(17 * boost), knockbackX: 480, knockbackY: -340,
+        damage: Math.round(16 * dmgBoost), knockbackX: 480, knockbackY: -340,
         color, accent, life: 1.25, maxLife: 1.25, rotation: 0, hitIds: new Set(), gravity: 980, age: 0,
       };
     case 'shuriken':
@@ -109,7 +113,7 @@ export function createProjectile(
         id, ownerIndex, kind, pos: { ...pos },
         vel: { x: vxDir * 840, y: vyDir * 840 - (aimAngle == null ? 20 : 0) },
         facing, angle: dirAngle, radius: 16, width: 30, height: 30,
-        damage: Math.round(9 * boost), knockbackX: 280, knockbackY: -140,
+        damage: Math.round(9 * dmgBoost), knockbackX: 280, knockbackY: -140,
         color, accent, life: 0.85, maxLife: 0.85, rotation: 0, hitIds: new Set(), age: 0,
       };
     case 'boomerang':
@@ -117,7 +121,7 @@ export function createProjectile(
         id, ownerIndex, kind, pos: { ...pos },
         vel: { x: vxDir * 720, y: vyDir * 720 },
         facing, angle: dirAngle, radius: 26, width: 52, height: 52,
-        damage: Math.round(11 * boost), knockbackX: 300, knockbackY: -170,
+        damage: Math.round(11 * dmgBoost), knockbackX: 300, knockbackY: -170,
         color, accent, life: 1.55, maxLife: 1.55, rotation: 0, hitIds: new Set(), returning: false, age: 0,
       };
     case 'shockwave':
@@ -125,7 +129,7 @@ export function createProjectile(
         id, ownerIndex, kind, pos: { x: pos.x, y: pos.y + 32 },
         vel: { x: facing * 520, y: 0 },
         facing, angle: facing > 0 ? 0 : Math.PI, radius: 32, width: 68, height: 48,
-        damage: Math.round(15 * boost), knockbackX: 460, knockbackY: -440,
+        damage: Math.round(14 * dmgBoost), knockbackX: 460, knockbackY: -440,
         color, accent, life: 0.65, maxLife: 0.65, rotation: 0, hitIds: new Set(), age: 0,
       };
     case 'echo_bomb':

@@ -1,7 +1,7 @@
 # 草稿纸大乱斗 · Scratchpad & Geometry Brawl
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-v0.3.2-ff7a1a.svg)](https://github.com/keilv5c/scratchpad-brawl/releases)
+[![Version](https://img.shields.io/badge/Version-v0.3.3-ff7a1a.svg)](https://github.com/keilv5c/scratchpad-brawl/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20x64%20%7C%20Web-141418.svg)](#快速开始)
 
 一款纯手绘矢量 / Canvas 2D + Web Audio 程序化音效打造的 Windows 火柴人格斗乱斗游戏，内置两大独立玩法模式：
@@ -52,7 +52,7 @@
 ## 快速开始
 
 ### 方式一：直接下载 Windows 便携版（推荐）
-1. 前往 [Releases](https://github.com/keilv5c/scratchpad-brawl/releases) 下载最新 `ScratchpadBrawl-v0.3.2-win-x64.zip`。
+1. 前往 [Releases](https://github.com/keilv5c/scratchpad-brawl/releases) 下载最新 `ScratchpadBrawl-v0.3.3-win-x64.zip`。
 2. 解压到任意英文或中文目录，双击 **`InkbladeDuel.exe`** 即可开玩。
 3. **运行环境要求**：Windows 10 / 11（64 位），需已安装 [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) 与系统自带的 Microsoft Edge WebView2。
 
@@ -87,7 +87,7 @@ Windows 下也可以直接双击根目录的 **`更新游戏到EXE.bat`**（秒�
 | 操作 | 键鼠模式（默认） | 纯键盘 P1 | 纯键盘 P2（双人同屏） |
 | :--- | :--- | :--- | :--- |
 | 移动 | `A` / `D` | `A` / `D` | `←` / `→` |
-| 跳跃 | `Space` | `W` | `↑` |
+| 跳跃 / 穿下台阶 | `Space` / 双击 `S`（或 `S+Space`） | `W` / 双击 `S`（或 `S+W`） | `↑` / 双击 `↓`（或 `↓+↑`） |
 | 快攻 / 连击 | 鼠标左键 | `J` | `小键盘 1` |
 | 蓄力重击 / 公式发射 | 鼠标中键（滚轮按压） | `K` | `小键盘 2` |
 | 防御 / 完美弹反 | 鼠标右键 | `L` | `小键盘 3` |

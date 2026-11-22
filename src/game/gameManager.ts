@@ -131,6 +131,7 @@ export class GameManager {
   private hitstopTimer = 0;
   private slowMoTimer = 0;
   private timeScale = 1.0;
+  private heavyCastDealt = new Map<string, number>();
 
   // Training toggles
   public trainingDummy: TrainingDummyMode = 'spar';
@@ -839,8 +840,8 @@ export class GameManager {
         if (this.p1.pos.y > this.stage.worldHeight + 40) this.p1.resetForRound({ ...this.stage.spawnP1 }, 1);
         if (e0.pos.y > this.stage.worldHeight + 40) e0.resetForRound({ ...this.stage.spawnP2 }, -1);
 
-        const aiInp1 = this.demoAiP1.update(dt, this.p1, e0, [], false, 'spar');
-        const aiInp2 = this.enemyAis[0].update(dt, e0, this.p1, [], false, 'spar');
+        const aiInp1 = this.demoAiP1.update(dt, this.p1, e0, [], false, 'spar', undefined, this.stage.platforms, broken);
+        const aiInp2 = this.enemyAis[0].update(dt, e0, this.p1, [], false, 'spar', undefined, this.stage.platforms, broken);
         const cb = this.makeFighterCallbacks();
         // Mute combat sfx subtly? SoundEngine stays silent until first click anyway!
         this.p1.update(dt, aiInp1, e0, this.stage.platforms, broken, this.sound, cb, true, this.stage.worldWidth, this.stage.updraftZones);
@@ -1033,7 +1034,9 @@ export class GameManager {
               this.arenaObjects.pickups,
               this.mode === 'training',
               this.trainingDummy,
-              (trigger) => this.handleBossSkill(enemy, trigger.kind, trigger.targetX)
+              (trigger) => this.handleBossSkill(enemy, trigger.kind, trigger.targetX),
+              this.stage.platforms,
+              brokenIds
             );
       enemy.update(
         dt,
@@ -1137,6 +1140,10 @@ export class GameManager {
             chargeRatio,
             baseAngle + offset
           );
+          if (owner.attackKind === 'heavy' && owner.activeHeavyCastId && owner.activeHeavyCastCap > 0) {
+            proj.castId = owner.activeHeavyCastId;
+            proj.castCap = owner.activeHeavyCastCap;
+          }
           this.projectiles.push(proj);
         }
 
@@ -1667,7 +1674,9 @@ export class GameManager {
           20,
           p.kind === 'boss_eraser' || p.kind === 'shockwave' || p.kind === 'ink_pillar' || p.kind === 'stapler_hazard',
           p.pos,
-          p.kind === 'boss_eraser' ? '擦!' : p.kind === 'boomerang' ? '旋斩!' : p.kind === 'echo_bomb' ? '爆墨!' : '斩!'
+          p.kind === 'boss_eraser' ? '擦!' : p.kind === 'boomerang' ? '旋斩!' : p.kind === 'echo_bomb' ? '爆墨!' : '斩!',
+          p.castId,
+          p.castCap
         );
 
         if (
@@ -1801,15 +1810,17 @@ export class GameManager {
           y: def.pos.y - 46,
         };
 
-        const chargeMult = atk.attackKind === 'heavy' ? 1 + atk.lastChargeRatio * 0.55 : 1;
+        // Balanced charge scaling: full charge grants +28% damage & +22% knockback (meaningful, never overtuned!)
+        const chargeMult = atk.attackKind === 'heavy' ? 1 + atk.lastChargeRatio * 0.28 : 1;
+        const chargeKb = atk.attackKind === 'heavy' ? 1 + atk.lastChargeRatio * 0.22 : 1;
         const dmg = Math.round(move.damage * chargeMult * atk.damageMult);
         const kbMult = atk.index === 0 && this.hasBuff('heavy_ink') ? 1.18 : 1.0;
 
         // Paperclip Chain Whip pulls target right in front of attacker!
         const kbX = move.pullEnemy
           ? (atk.pos.x + atk.facing * 74 - def.pos.x) * 4.4
-          : move.knockbackX * chargeMult * kbMult * atk.facing;
-        const kbY = move.knockbackY * (move.launcher ? 1 : chargeMult);
+          : move.knockbackX * chargeKb * kbMult * atk.facing;
+        const kbY = move.knockbackY * (move.launcher ? 1 : chargeKb);
 
         const extraGuardBreak =
           atk.index === 0 && atk.attackKind === 'light3' && this.hasBuff('iron_nib');
@@ -1825,7 +1836,9 @@ export class GameManager {
           move.hitstun,
           !!move.guardBreak || extraGuardBreak || (atk.attackKind === 'heavy' && atk.lastChargeRatio > 0.5),
           hitPos,
-          move.onomatopoeia
+          move.onomatopoeia,
+          atk.attackKind === 'heavy' ? atk.activeHeavyCastId ?? undefined : undefined,
+          atk.attackKind === 'heavy' ? atk.activeHeavyCastCap : undefined
         );
 
         // Damp attacker's forward lunge velocity on melee contact so combos feel planted & never skate past the target!
@@ -1883,8 +1896,19 @@ export class GameManager {
     hitstun: number,
     guardBreak: boolean,
     hitPos: Vec2,
-    ono: string
+    ono: string,
+    castId?: string,
+    castCap?: number
   ): void {
+    // Enforce per-cast Heavy cap so melee + spawned projectile never double-dip into a 50+ DMG one-shot!
+    let effectiveDamage = damage;
+    if (castId && castCap && castCap > 0) {
+      const dealt = this.heavyCastDealt.get(castId) ?? 0;
+      const rem = Math.max(0, castCap - dealt);
+      if (rem <= 0) return;
+      effectiveDamage = Math.min(damage, rem);
+    }
+
     const facingAttacker = (atk.pos.x - def.pos.x) * def.facing >= -18;
     const isBlocking = def.action === 'block' && facingAttacker;
 
@@ -1976,25 +2000,32 @@ export class GameManager {
     }
 
     // 3. CLEAN HIT!
-    const isHeavy = damage >= 15 || guardBreak;
-    def.hp = Math.max(0, def.hp - damage);
+    if (castId && castCap && castCap > 0) {
+      this.heavyCastDealt.set(castId, (this.heavyCastDealt.get(castId) ?? 0) + effectiveDamage);
+      if (this.heavyCastDealt.size > 40) {
+        const firstKey = this.heavyCastDealt.keys().next().value;
+        if (firstKey) this.heavyCastDealt.delete(firstKey);
+      }
+    }
+    const isHeavy = effectiveDamage >= 15 || guardBreak;
+    def.hp = Math.max(0, def.hp - effectiveDamage);
     def.hurtFlashFrames = 6;
     def.comboReceived++;
 
     if (atk.index === 0) {
-      this.stats.p1DamageDealt += damage;
+      this.stats.p1DamageDealt += effectiveDamage;
       this.stats.p1MaxCombo = Math.max(this.stats.p1MaxCombo, def.comboReceived);
       this.addStylePoints(isHeavy ? 18 : 11);
     } else {
-      this.stats.p2DamageDealt += damage;
+      this.stats.p2DamageDealt += effectiveDamage;
       this.stats.p2MaxCombo = Math.max(this.stats.p2MaxCombo, def.comboReceived);
       // Taking clean damage lowers Stylish Rank!
       this.styleScore = Math.max(0, this.styleScore - 22);
       this.styleRank = scoreToStyleRank(this.styleScore);
     }
 
-    atk.addInk(Math.round(damage * 0.95));
-    def.addInk(Math.round(damage * 0.55));
+    atk.addInk(Math.round(effectiveDamage * 0.95));
+    def.addInk(Math.round(effectiveDamage * 0.55));
 
     this.paper.addInkSplatter(hitPos, def.inkColor, isHeavy ? 22 : 12, Math.sign(kbX), Math.sign(kbY));
     if (isHeavy) {

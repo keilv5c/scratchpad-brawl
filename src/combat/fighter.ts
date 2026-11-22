@@ -81,6 +81,7 @@ export class Fighter {
 
   // Physics state
   public onGround = false;
+  public onOneWayPlatform = false;
   public coyoteFrames = 0;
   public jumpsLeft = 2;
   public wallDir: -1 | 0 | 1 = 0; // -1 left wall, +1 right wall
@@ -89,6 +90,8 @@ export class Fighter {
   // Combat state
   public attackKind: AttackKind | null = null;
   public attackHitIds = new Set<string>();
+  public activeHeavyCastId: string | null = null;
+  public activeHeavyCastCap = 0;
   public attackMultiHitStep = 0;
   public comboStep = 0;
   public comboWindowFrames = 0;
@@ -538,7 +541,7 @@ export class Fighter {
           else if (this.weapon === 'stapler') sound.playStaplerSlam();
           else sound.playWhoosh(move.whooshWeight);
         }
-        const chargeBoost = this.attackKind === 'heavy' ? 1 + this.lastChargeRatio * 0.45 : 1;
+        const chargeBoost = this.attackKind === 'heavy' ? 1 + this.lastChargeRatio * 0.28 : 1;
         this.vel.x = this.facing * move.lungeX * chargeBoost;
         if (move.lungeY) {
           this.vel.y = move.lungeY;
@@ -705,14 +708,24 @@ export class Fighter {
       if (Math.abs(this.vel.x) < 18) this.vel.x = 0;
     }
 
-    // Drop through one-way platform
-    if (inp.down && inp.jumpPressed > 0 && this.onGround) {
-      inp.jumpPressed = 0;
-      this.dropThroughFrames = 14;
-      this.pos.y += 4;
+    // Drop through one-way platform (Double-tap Down S×2/↓×2 OR Down + Jump!)
+    if (
+      this.onGround &&
+      this.onOneWayPlatform &&
+      (inp.dropThroughPressed > 0 || (inp.down && inp.jumpPressed > 0))
+    ) {
+      if (inp.dropThroughPressed > 0) {
+        inp.dropThroughPressed = 0;
+      } else {
+        inp.jumpPressed = 0;
+      }
+      this.dropThroughFrames = 16;
+      this.pos.y += 5;
       this.onGround = false;
-      this.vel.y = 120;
+      this.onOneWayPlatform = false;
+      this.vel.y = 140;
       this.action = 'fall';
+      this.actionFrames = 0;
       return;
     }
 
@@ -849,8 +862,16 @@ export class Fighter {
     else if (kind === 'light2') this.comboStep = 2;
     else this.comboStep = 0;
 
-    if (kind === 'heavy' && this.lastChargeRatio > 0.65) {
-      sound.playPaperSkid();
+    if (kind === 'heavy') {
+      this.activeHeavyCastId = `${this.uid}_hvy_${Math.floor(performance.now() * 10)}_${Math.floor(Math.random() * 1000)}`;
+      const baseCap = this.weapon === 'scissors' || this.weapon === 'eraser' ? 24 : 21;
+      this.activeHeavyCastCap = Math.round((baseCap + this.lastChargeRatio * 6) * this.damageMult);
+      if (this.lastChargeRatio > 0.65) {
+        sound.playPaperSkid();
+      }
+    } else {
+      this.activeHeavyCastId = null;
+      this.activeHeavyCastCap = 0;
     }
   }
 
@@ -985,6 +1006,7 @@ export class Fighter {
 
     // Platform top collisions (including Rubber Eraser Bounce Pads & Elevators!)
     this.onGround = false;
+    this.onOneWayPlatform = false;
     if (this.vel.y >= 0) {
       for (const p of platforms) {
         if (p.pillar || brokenPlatforms.has(p.id)) continue;
@@ -997,6 +1019,7 @@ export class Fighter {
               this.pos.y = p.y;
               this.vel.y = -980;
               this.onGround = false;
+              this.onOneWayPlatform = false;
               this.jumpsLeft = 2;
               this.action = 'jump';
               this.actionFrames = 0;
@@ -1011,6 +1034,7 @@ export class Fighter {
             }
             this.vel.y = 0;
             this.onGround = true;
+            this.onOneWayPlatform = Boolean(p.oneWay);
             this.jumpsLeft = 2;
             this.coyoteFrames = 6;
             break;
