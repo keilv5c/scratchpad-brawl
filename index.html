@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>草稿纸大乱斗 v0.3.2 | SCRATCHPAD &amp; GEOMETRY BRAWL</title>
+  </head>
+  <body>
+    <div id="app">
+      <div class="stage-frame">
+        <canvas id="game-canvas"></canvas>
+
+        <!-- ==================== STAGE A: CINEMATIC GAME TITLE SCREEN ==================== -->
+        <div id="title-screen" class="title-screen">
+          <div class="title-left">
+            <div class="hero-brand">
+              <div class="hero-seal">乱斗</div>
+              <div class="hero-text">
+                <div class="hero-kicker">SCRATCHPAD BRAWL · DESK DUEL <span class="ver-badge">v0.3.2</span></div>
+                <h1 class="hero-logo">草稿纸大乱斗</h1>
+                <div class="hero-slash"></div>
+                <p class="hero-tagline">12 大纯正文具 · 全新「几何乱斗」数学公式作战 · 护眼零频闪 · 键鼠/双柄适配</p>
+              </div>
+            </div>
+
+            <nav class="title-menu" aria-label="主菜单">
+              <button class="title-nav-btn primary-nav" data-enter-mode="arcade">
+                <span class="tn-icon">⚔️</span>
+                <span class="tn-body">
+                  <span class="tn-title">单人闯关 · 课桌争霸赛</span>
+                  <span class="tn-sub">连战 5 位文具高手与最终 Boss 执笔大魔王</span>
+                </span>
+                <span class="tn-arrow">→</span>
+              </button>
+
+              <button class="title-nav-btn geo-nav" id="btn-enter-geometry">
+                <span class="tn-icon geo-icon-glyph">φ</span>
+                <span class="tn-body">
+                  <span class="tn-title">几何乱斗 · 数学公式对决 <span class="geo-new-tag">NEW</span></span>
+                  <span class="tn-sub">纯黑虚空矢量风 · 经典欧拉 e^(iπ)+1=0 · 黄金分割 · 三角/微积分 · 4D 超立方体</span>
+                </span>
+                <span class="tn-arrow">→</span>
+              </button>
+
+              <button class="title-nav-btn" data-enter-mode="roguelike">
+                <span class="tn-icon">🃏</span>
+                <span class="tn-body">
+                  <span class="tn-title">无尽肉鸽 · 涂鸦生存战</span>
+                  <span class="tn-sub">1v多涂鸦大军 · 8大图轮战 · 三选一文具强化贴纸</span>
+                </span>
+                <span class="tn-arrow">→</span>
+              </button>
+
+              <button class="title-nav-btn" data-enter-mode="versus">
+                <span class="tn-icon">🤝</span>
+                <span class="tn-body">
+                  <span class="tn-title">双人同屏 · 课桌对决</span>
+                  <span class="tn-sub">支持 键鼠+手柄 / 双人双手柄 / 共用键盘 · 三局两胜自由开战</span>
+                </span>
+                <span class="tn-arrow">→</span>
+              </button>
+
+              <button class="title-nav-btn" data-enter-mode="training">
+                <span class="tn-icon">🎯</span>
+                <span class="tn-body">
+                  <span class="tn-title">自由练习本</span>
+                  <span class="tn-sub">随时切换 12 件文具与地图 · 无限灵感值练大招与弹反</span>
+                </span>
+                <span class="tn-arrow">→</span>
+              </button>
+            </nav>
+
+            <div class="title-util-row">
+              <button class="util-pill accent-btn" id="title-controls-btn">⌨️ 方案一 · 经典键盘</button>
+              <button class="util-pill" id="title-gamepad-btn">🎮 手柄与自定义</button>
+              <button class="util-pill" id="title-cosmetics-btn">🎨 外观与设置</button>
+              <button class="util-pill" id="title-jukebox-btn">🎵 乐章点唱机</button>
+              <button class="util-pill" id="title-fullscreen-btn">⛶ 全屏</button>
+            </div>
+          </div>
+
+          <div class="title-corner-widgets">
+            <div class="live-gp-pill hidden" id="title-gp-badge">🎮 已连接 1 把手柄</div>
+            <div class="live-demo-tag">● 实时手绘 AI 文具对决中</div>
+            <div class="mini-jukebox">
+              <button class="mj-btn" id="mj-prev" title="上一首乐章">⏮</button>
+              <button class="mj-track" id="mj-open" title="打开乐章点唱机">
+                <span class="mj-note">♪</span>
+                <span id="mj-track-name">《笔走龙蛇》</span>
+              </button>
+              <button class="mj-btn" id="mj-next" title="下一首乐章">⏭</button>
+              <button class="mj-btn" id="mj-mute-bgm" title="开关乐章">🔊</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== STAGE B: BATTLE SETUP / 12 STATIONERY & 8 STAGES ==================== -->
+        <div id="setup-overlay" class="overlay hidden">
+          <div class="sketch-panel setup-panel">
+            <div class="setup-top-bar">
+              <button class="secondary-btn compact-btn" id="btn-setup-back">← 返回主界面</button>
+              <div class="setup-mode-heading">
+                <h2 id="setup-mode-title">⚔️ 课桌争霸赛 · 备战台</h2>
+                <p id="setup-mode-sub">从铅笔盒挑一件趁手文具，开始乱斗！</p>
+              </div>
+              <div class="menu-audio-toggles">
+                <button class="icon-btn accent-btn" id="menu-controls-btn">⌨️ 操作: 方案一</button>
+                <button class="icon-btn" id="menu-jukebox-btn">🎵 乐章</button>
+                <button class="icon-btn" id="menu-cosmetics-btn">🎨 外观</button>
+                <button class="icon-btn" id="menu-fullscreen-btn">⛶ 全屏</button>
+              </div>
+            </div>
+
+            <div class="setup-grid setup-grid-wide">
+              <!-- Left: 12 Pure Stationery Weapons with Category Filter -->
+              <div class="setup-block">
+                <div class="weapon-header-row">
+                  <div class="block-label" style="margin-bottom:0;">铅笔盒兵器库（12 件文具 · 各自专属大招）</div>
+                  <div class="cat-pills" id="weapon-cat-pills">
+                    <button class="cat-pill active" data-wcat="all">全部 12</button>
+                    <button class="cat-pill" data-wcat="melee">近战</button>
+                    <button class="cat-pill" data-wcat="ranged">远程</button>
+                    <button class="cat-pill" data-wcat="trick">奇趣机关</button>
+                  </div>
+                </div>
+                <div class="card-grid-3" id="p1-weapon-list"></div>
+              </div>
+
+              <!-- Right: Mode-Specific Setup -->
+              <div class="setup-block" id="right-setup-block">
+                <div id="arcade-preview-wrap">
+                  <div class="block-label">课桌争霸赛 · 5 关对手一览</div>
+                  <div class="arcade-ladder" id="arcade-ladder"></div>
+                </div>
+
+                <div id="roguelike-preview-wrap" class="hidden">
+                  <div class="block-label">🃏 无尽肉鸽 · 涂鸦生存战规则</div>
+                  <div class="rogue-intro-card">
+                    <p><strong>8 大战场轮番激战：</strong>涵盖《巨型课桌文具城》《双页跨缝大峡谷》《墨海巨舰》《九重手绘高塔》等大地图！</p>
+                    <p><strong>1v多 涂鸦大军：</strong>每波迎战 2~3 名手持不同文具的火柴人，每逢 <b>第 3 波</b> 迎战文具头目 Boss！</p>
+                    <p><strong>三选一强化贴纸：</strong>每清完一波挑选强化贴纸（残影爆墨、三连齐发、塑料尺静电雷、巨型图钉雨…）！</p>
+                    <div class="rogue-record-line" id="rogue-best-record">历史最高记录：第 0 波</div>
+                  </div>
+                </div>
+
+                <div id="custom-setup-wrap" class="hidden">
+                  <!-- Versus Multi-Device Controller Pairing Panel (Visible in Versus Mode!) -->
+                  <div id="versus-controller-box" class="versus-ctrl-box hidden">
+                    <div class="vcb-head">
+                      <span class="vcb-title">🎮 同屏控制器配对（支持键鼠+手柄 / 双手柄 / 共用键盘）</span>
+                      <span class="vcb-status" id="vs-gp-status">⚪ 未检测到手柄（插上按任意键唤醒）</span>
+                    </div>
+                    <div class="vcb-quick-row">
+                      <button class="cat-pill" id="btn-vs-combo-kb" type="button">⌨️ 共用键盘</button>
+                      <button class="cat-pill" id="btn-vs-combo-kbgp" type="button">🖱️+🎮 键鼠 + 手柄</button>
+                      <button class="cat-pill" id="btn-vs-combo-2gp" type="button">🎮+🎮 双人双手柄</button>
+                      <button class="cat-pill" id="btn-vs-swap" type="button">⇄ 互换 P1/P2</button>
+                      <button class="cat-pill vcb-gear-btn" id="btn-vs-gp-config" type="button">⚙️ 手柄改键</button>
+                    </div>
+                    <div class="vcb-slots">
+                      <div class="vcb-slot">
+                        <span class="vcb-player-tag p1">P1 小墨</span>
+                        <select id="sel-vs-p1-dev" class="vcb-select"></select>
+                        <button class="vcb-claim-btn" id="btn-claim-p1" type="button" title="点击后按任意手柄键绑定给 P1">认领手柄</button>
+                      </div>
+                      <div class="vcb-slot">
+                        <span class="vcb-player-tag p2">P2 小蓝</span>
+                        <select id="sel-vs-p2-dev" class="vcb-select"></select>
+                        <button class="vcb-claim-btn" id="btn-claim-p2" type="button" title="点击后按任意手柄键绑定给 P2">认领手柄</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="block-label">选择互动手绘战场（8 张地图 · 含 4 张大尺寸特色图！）</div>
+                  <div class="stage-grid-2" id="stage-list"></div>
+
+                  <div class="sub-setup-row">
+                    <div class="sub-col">
+                      <div class="block-label" id="p2-weapon-label" style="margin-top:8px;">对手文具（P2）</div>
+                      <div class="pill-row compact-pills" id="p2-weapon-list"></div>
+                    </div>
+                    <div class="sub-col">
+                      <div class="block-label" style="margin-top:8px;">草稿纸面风格</div>
+                      <div class="pill-row compact-pills" id="theme-list"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="menu-footer">
+              <div class="controls-mini" id="menu-controls-summary"></div>
+              <button class="start-btn" id="btn-start-game">开始乱斗！</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== IN-MATCH HAND-DRAWN HUD ==================== -->
+        <div id="hud" class="hud hidden">
+          <div class="hud-top">
+            <!-- P1 Gauge -->
+            <div class="fighter-hud p1">
+              <div class="fighter-meta">
+                <span class="fighter-name" id="p1-name">小墨</span>
+                <span class="weapon-pill" id="p1-weapon">30cm 铁直尺</span>
+                <div class="win-marks" id="p1-wins"></div>
+              </div>
+              <div class="hp-bar-outer">
+                <div class="hp-bar-delayed" id="p1-hp-delayed"></div>
+                <div class="hp-bar-fill" id="p1-hp-fill"></div>
+                <span class="hp-num" id="p1-hp-text">125</span>
+              </div>
+              <div class="sub-bars">
+                <div class="ink-bar-outer">
+                  <div class="ink-bar-fill" id="p1-ink-fill"></div>
+                  <span class="ink-label" id="p1-ink-label">灵感 25%</span>
+                </div>
+                <div class="guard-bar-outer" title="格挡值">
+                  <div class="guard-bar-fill" id="p1-guard-fill"></div>
+                </div>
+              </div>
+              <div class="p1-live-badges">
+                <div class="style-rank-badge hidden" id="style-rank-badge">
+                  <span class="sr-cn" id="sr-cn">A</span>
+                  <span class="sr-sub" id="sr-sub">作业优秀</span>
+                </div>
+                <div class="combo-badge hidden" id="p1-combo">0 连击!</div>
+                <div class="rogue-buff-strip" id="rogue-buff-strip"></div>
+              </div>
+            </div>
+
+            <!-- Center Round, Timer & Quick Audio/Track/Fullscreen Controls -->
+            <div class="hud-center">
+              <div class="round-tag" id="hud-round-tag">第 1 回合</div>
+              <div class="timer-circle" id="hud-timer">99</div>
+              <div class="top-tools">
+                <button class="icon-btn" id="btn-mute-sfx" title="开关音效">🔊</button>
+                <button class="icon-btn" id="btn-mute-bgm" title="开关乐章">🎵</button>
+                <button class="icon-btn" id="btn-hud-next-track" title="切换下一首乐章">⏭ <span id="hud-track-short">笔走龙蛇</span></button>
+                <button class="icon-btn" id="btn-hud-fullscreen" title="全屏切换 (F11)">⛶</button>
+                <button class="icon-btn" id="btn-pause" title="课间暂停 (Esc)">⏸</button>
+              </div>
+            </div>
+
+            <!-- P2 Gauge -->
+            <div class="fighter-hud p2">
+              <div class="fighter-meta">
+                <div class="win-marks" id="p2-wins"></div>
+                <span class="weapon-pill" id="p2-weapon">尖锋圆规</span>
+                <span class="fighter-name" id="p2-name">小蓝</span>
+              </div>
+              <div class="hp-bar-outer">
+                <div class="hp-bar-delayed" id="p2-hp-delayed"></div>
+                <div class="hp-bar-fill" id="p2-hp-fill"></div>
+                <span class="hp-num" id="p2-hp-text">125</span>
+              </div>
+              <div class="sub-bars">
+                <div class="guard-bar-outer" title="格挡值">
+                  <div class="guard-bar-fill" id="p2-guard-fill"></div>
+                </div>
+                <div class="ink-bar-outer">
+                  <div class="ink-bar-fill" id="p2-ink-fill"></div>
+                  <span class="ink-label" id="p2-ink-label">灵感 25%</span>
+                </div>
+              </div>
+              <div class="combo-badge hidden" id="p2-combo">0 连击!</div>
+            </div>
+          </div>
+
+          <div id="hud-banner" class="hud-banner hidden">
+            <div class="banner-title" id="banner-title"></div>
+            <div class="banner-sub" id="banner-sub"></div>
+          </div>
+
+          <!-- Training Mode Floating Toolbar (All 12 Stationery Weapons!) -->
+          <div id="training-bar" class="training-bar hidden">
+            <span class="tb-label">练习控制台</span>
+            <select id="tb-weapon" title="实时切换 12 件文具">
+              <option value="compass">🧭 尖锋圆规</option>
+              <option value="tape">🩹 涂白修正带</option>
+              <option value="ruler">📏 30cm 铁直尺</option>
+              <option value="eraser">🧽 巨型橡皮重锤</option>
+              <option value="cutter">🔪 美工刀×图钉</option>
+              <option value="pencil">✏️ 加长自动铅笔</option>
+              <option value="whip">📎 回形针锁链</option>
+              <option value="boomerang">📐 三角尺回旋镖</option>
+              <option value="scissors">✂️ 手工大剪刀</option>
+              <option value="stapler">🗜️ 重型订书机</option>
+              <option value="highlighter">🖍️ 荧光笔双棍</option>
+              <option value="fountain_pen">🖋️ 黑金钢笔</option>
+            </select>
+            <select id="tb-dummy" title="木桩模式">
+              <option value="spar">木桩：实战对练</option>
+              <option value="stand">木桩：站桩测连招</option>
+              <option value="block">木桩：常驻格挡(练破防)</option>
+              <option value="attack">木桩：定频出招(练弹反)</option>
+            </select>
+            <button class="tb-btn" id="tb-inf-ink">无限灵感: 关</button>
+            <button class="tb-btn" id="tb-hitbox">判定框: 关</button>
+            <button class="tb-btn" id="tb-reset">翻页重置</button>
+            <button class="tb-btn danger" id="tb-exit">返回主界面</button>
+          </div>
+
+          <div class="key-strip" id="key-strip">
+            <span id="p1-key-hint"></span>
+            <span id="p2-key-hint" class="hidden"><b>P2</b> 方向键 · <b>N/1</b>快攻 · <b>M/2</b>蓄力 · <b>,/3</b>弹反 · <b>./4</b>瞬步 · <b>//5</b>大招</span>
+          </div>
+        </div>
+
+        <!-- ==================== MODALS ==================== -->
+
+        <!-- Pause Modal -->
+        <div id="pause-overlay" class="overlay hidden">
+          <div class="sketch-panel modal-panel">
+            <h2>⏸ 课间暂停</h2>
+            <p class="modal-sub" id="pause-sub">按 Esc 或手柄 Start 继续乱斗 · 按 F11 切换全屏</p>
+            <div class="modal-actions">
+              <button class="start-btn" id="btn-resume">继续乱斗</button>
+              <button class="secondary-btn" id="btn-pause-controls">⌨️/🎮 操作与手柄改键设置</button>
+              <button class="secondary-btn" id="btn-pause-jukebox">🎵 乐章点唱机（6 首曲风随时切）</button>
+              <button class="secondary-btn" id="btn-pause-cosmetics">🎨 外观与护眼/音量设置</button>
+              <button class="secondary-btn" id="btn-restart-round">重新开始本场</button>
+              <button class="secondary-btn danger" id="btn-back-menu">返回开局主界面</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6-Track Procedural Jukebox Modal -->
+        <div id="jukebox-overlay" class="overlay hidden">
+          <div class="sketch-panel controls-panel">
+            <div class="controls-header">
+              <div>
+                <h2>🎵 草稿纸六大乐章 · 实时点唱机</h2>
+                <p class="controls-sub">全部由 Web Audio API 实时物理建模合成，高评价与残血时自动触发高潮变奏！</p>
+              </div>
+              <button class="icon-btn" id="btn-close-jukebox-x">✕ 关闭</button>
+            </div>
+
+            <div class="controls-options-bar">
+              <span style="font-size:12.5px;font-weight:800;">播放策略：</span>
+              <button class="pill-btn" data-playmode="auto">按战场自动配乐</button>
+              <button class="pill-btn" data-playmode="shuffle">六乐章自动轮播</button>
+              <button class="pill-btn" data-playmode="loop">锁定当前单曲循环</button>
+              <button class="icon-btn" id="jb-toggle-enable" style="margin-left:auto;">🎵 乐章：已开启</button>
+            </div>
+
+            <div class="jukebox-grid" id="jukebox-grid"></div>
+
+            <div class="controls-footer">
+              <span class="controls-note">提示：战斗中也可以随时点击顶部 ⏭ 按钮秒切下一首乐章！</span>
+              <button class="start-btn" id="btn-close-jukebox">确认返回</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Controls / Keyboard, Mouse & Gamepad Settings Modal -->
+        <div id="controls-overlay" class="overlay hidden">
+          <div class="sketch-panel controls-panel">
+            <div class="controls-header">
+              <div>
+                <h2>⌨️ / 🎮 操作与手柄自定义设置</h2>
+                <p class="controls-sub">支持键鼠 360° 瞄准、双人手柄同屏配对，以及键盘与手柄全按键自定义！</p>
+              </div>
+              <button class="icon-btn" id="btn-close-controls-x" data-ignore-capture="true">✕ 关闭</button>
+            </div>
+
+            <!-- Top Mode Switch: Keyboard/Mouse vs Gamepad -->
+            <div class="ctrl-mode-switch" id="ctrl-mode-switch">
+              <button class="ctrl-mode-tab active" data-ctrl-tab="kb" data-ignore-capture="true">⌨️ 键盘与鼠标预设</button>
+              <button class="ctrl-mode-tab" data-ctrl-tab="gp" data-ignore-capture="true">🎮 手柄预设与自定义改键 <span class="gp-tab-dot" id="gp-tab-dot">0</span></button>
+            </div>
+
+            <!-- TAB 1: Keyboard & Mouse -->
+            <div id="ctrl-panel-kb" class="ctrl-tab-pane">
+              <div class="preset-tabs" id="preset-tabs">
+                <button class="preset-tab" data-preset="preset1" data-ignore-capture="true">
+                  <span class="pt-title">方案一 · 经典键盘</span>
+                  <span class="pt-desc">WASD 移动跳 · J/K/L/U/I 格斗键位</span>
+                </button>
+                <button class="preset-tab" data-preset="preset2" data-ignore-capture="true">
+                  <span class="pt-title">方案二 · 键鼠动作</span>
+                  <span class="pt-desc">空格跳(可禁W) · Shift残影 · 鼠标360°控向+左右键 · E蓄力 F大招</span>
+                </button>
+                <button class="preset-tab" data-preset="custom" data-ignore-capture="true">
+                  <span class="pt-title">方案三 · 自定义预设</span>
+                  <span class="pt-desc">点击任意招式槽，按键盘或鼠标键自由绑定</span>
+                </button>
+              </div>
+
+              <div class="controls-options-bar" id="controls-options-bar">
+                <label class="toggle-chip" id="wrap-toggle-w">
+                  <input type="checkbox" id="chk-disable-w" />
+                  <span>禁用 W 跳跃（仅用跳跃键起跳，W 仍可配合快攻上挑）</span>
+                </label>
+                <label class="toggle-chip" id="wrap-toggle-mouse">
+                  <input type="checkbox" id="chk-mouse-aim" />
+                  <span>鼠标控制朝向与 360° 飞行道具瞄准</span>
+                </label>
+                <div class="custom-quick-tools hidden" id="custom-quick-tools">
+                  <button class="icon-btn" id="btn-copy-p1" data-ignore-capture="true">载入方案一</button>
+                  <button class="icon-btn" id="btn-copy-p2" data-ignore-capture="true">载入方案二</button>
+                </div>
+              </div>
+
+              <div class="binding-grid" id="binding-grid"></div>
+            </div>
+
+            <!-- TAB 2: Gamepad Presets, Tuning & Custom Rebinding -->
+            <div id="ctrl-panel-gp" class="ctrl-tab-pane hidden">
+              <div class="gp-live-banner" id="gp-live-banner">
+                <span id="gp-connected-text">⚪ 未检测到手柄 — 插上 Xbox / PS / Switch 手柄后按任意键即可唤醒识别</span>
+                <span class="gp-live-press-chip" id="gp-live-press">等待测试按键…</span>
+              </div>
+
+              <div class="preset-tabs" id="gp-preset-tabs">
+                <button class="preset-tab gp-preset-tab" data-gp-preset="standard" data-ignore-capture="true">
+                  <span class="pt-title">手柄方案一 · 动作双摇杆</span>
+                  <span class="pt-desc">A跳 · X攻 · Y/RT蓄力(配右摇杆360°) · LB/LT弹反 · B瞬步 · RB大招</span>
+                </button>
+                <button class="preset-tab gp-preset-tab" data-gp-preset="brawler" data-ignore-capture="true">
+                  <span class="pt-title">手柄方案二 · 街机大乱斗</span>
+                  <span class="pt-desc">A/Y跳 · X攻 · B/RT蓄力 · LT格挡弹反 · LB瞬步 · RB大招</span>
+                </button>
+                <button class="preset-tab gp-preset-tab" data-gp-preset="custom" data-ignore-capture="true">
+                  <span class="pt-title">手柄方案三 · 自定义改键</span>
+                  <span class="pt-desc">点击主键或副键槽，按下手柄任意按钮或扳机 (LT/RT) 自由绑定</span>
+                </button>
+              </div>
+
+              <div class="controls-options-bar" id="gp-options-bar">
+                <label class="toggle-chip">
+                  <input type="checkbox" id="chk-gp-rumble" />
+                  <span>📳 手柄双马达震动</span>
+                </label>
+                <label class="toggle-chip">
+                  <input type="checkbox" id="chk-gp-raim" />
+                  <span>🕹️ 右摇杆 360° 弹幕瞄准</span>
+                </label>
+                <label class="toggle-chip">
+                  <input type="checkbox" id="chk-gp-upjump" />
+                  <span>⬆️ 左摇杆上推跳跃</span>
+                </label>
+                <label class="toggle-chip gp-dz-chip">
+                  <span>防漂移死区 <strong id="lbl-gp-dz">22%</strong></span>
+                  <input type="range" id="rng-gp-dz" min="10" max="45" value="22" />
+                </label>
+                <div class="custom-quick-tools hidden" id="gp-custom-tools">
+                  <button class="icon-btn" id="btn-gp-copy-std" data-ignore-capture="true">载入方案一</button>
+                  <button class="icon-btn" id="btn-gp-copy-brawl" data-ignore-capture="true">载入方案二</button>
+                </div>
+              </div>
+
+              <div class="binding-grid" id="gp-binding-grid"></div>
+            </div>
+
+            <div class="controls-footer">
+              <span class="controls-note" id="controls-note">提示：键鼠与手柄方案及改键都会自动永久保存到本地。</span>
+              <button class="start-btn" id="btn-save-controls" data-ignore-capture="true">确认应用</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cosmetics, Eye-Friendly Settings & Career Sketchbook Modal -->
+        <div id="cosmetics-overlay" class="overlay hidden">
+          <div class="sketch-panel controls-panel">
+            <div class="controls-header">
+              <div>
+                <h2>🎨 涂鸦外观 · 演出与音效 · 成绩单</h2>
+                <p class="controls-sub">日常零频闪护眼 · 终极大招专属高燃演出三档可调 · 6 款笔迹皮肤与永久成绩单</p>
+              </div>
+              <button class="icon-btn" id="btn-close-cosmetics-x">✕ 关闭</button>
+            </div>
+
+            <div class="cosmetics-grid">
+              <div class="cos-section">
+                <div class="block-label">选择你的笔迹皮肤（实时生效）</div>
+                <div class="skin-list" id="skin-list"></div>
+              </div>
+              <div class="cos-section">
+                <div class="block-label">大招演出、护眼与音频调校</div>
+                <div class="slider-box">
+                  <label>✨ 大招与战斗演出强度</label>
+                  <div class="pill-row compact-pills" id="fx-intensity-pills">
+                    <button class="pill-btn" data-fx="eyesafe">🌿 柔和护眼</button>
+                    <button class="pill-btn" data-fx="balanced">✨ 均衡演出(推荐)</button>
+                    <button class="pill-btn" data-fx="cinema">🔥 热血动漫</button>
+                  </div>
+                  <div class="eye-safe-note" id="fx-intensity-note" style="margin-top:4px;">
+                    ✨ 日常招式零频闪，仅终极大招 &amp; KO 绝杀触发聚光暗幕、毛笔 Cut-in 与柔和定格（带 2.5s 防连闪冷却）
+                  </div>
+                  <label style="margin-top:6px;">🔊 文具拟音音效音量 <span id="lbl-sfx-vol">85%</span></label>
+                  <input type="range" id="rng-sfx-vol" min="0" max="100" value="85" />
+                  <label style="margin-top:6px;">🎵 动态乐章 BGM 音量 <span id="lbl-bgm-vol">60%</span></label>
+                  <input type="range" id="rng-bgm-vol" min="0" max="100" value="60" />
+                  <label style="margin-top:8px;">📳 打击震屏强度</label>
+                  <div class="pill-row compact-pills" id="shake-level-pills">
+                    <button class="pill-btn" data-shake="off">关闭震屏</button>
+                    <button class="pill-btn" data-shake="soft">柔和(护眼推荐)</button>
+                    <button class="pill-btn" data-shake="strong">强劲打击</button>
+                  </div>
+                </div>
+
+                <div class="block-label" style="margin-top:10px;">📖 个人乱斗成绩单</div>
+                <div class="career-grid" id="career-grid"></div>
+              </div>
+            </div>
+
+            <div class="controls-footer">
+              <span class="controls-note">所有外观、音量与成绩都会自动永久保存。</span>
+              <button class="start-btn" id="btn-save-cosmetics">保存返回</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Roguelike 3-Card Hand-Drawn Sticker Buff Picker Modal -->
+        <div id="buff-overlay" class="overlay hidden">
+          <div class="sketch-panel buff-panel">
+            <h2 id="buff-title">🃏 第 1 波清场！挑选一张文具强化贴纸</h2>
+            <p class="modal-sub">贴上强化贴纸并翻页迎战下一波涂鸦大军（每次换波回复 20 点生命）</p>
+            <div class="buff-cards" id="buff-cards"></div>
+          </div>
+        </div>
+
+        <!-- Red Grading Sheet Match Result Modal + KO Comic Snapshot -->
+        <div id="result-overlay" class="overlay hidden">
+          <div class="sketch-panel result-panel">
+            <div class="result-stamp" id="result-stamp">100分</div>
+            <h2 id="result-title">小墨 赢得课桌乱斗！</h2>
+            <p class="modal-sub" id="result-sub">红笔批注：文具用得出神入化，满分通过！</p>
+            <div class="result-body">
+              <div class="ko-photo-wrap hidden" id="ko-photo-wrap">
+                <img id="ko-photo-img" alt="KO 漫画定格快照" />
+                <button class="icon-btn accent-btn" id="btn-download-ko">💾 保存 KO 漫画定格图 (PNG)</button>
+              </div>
+              <div class="stats-grid" id="result-stats"></div>
+            </div>
+            <div class="modal-actions inline-actions">
+              <button class="start-btn hidden" id="btn-next-arcade">挑战下一位同学 →</button>
+              <button class="start-btn" id="btn-rematch">再来一局！</button>
+              <button class="secondary-btn" id="btn-result-setup">更换文具/地图</button>
+              <button class="secondary-btn" id="btn-result-menu">返回主界面</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== GEOMETRY BRAWL SETUP HUB (AUTHENTIC VECTOR STYLE!) ==================== -->
+        <div id="geo-setup-overlay" class="overlay geo-overlay hidden">
+          <div class="geo-panel geo-setup-panel">
+            <div class="geo-top-bar">
+              <button class="geo-btn" id="btn-geo-back">← 返回主界面</button>
+              <div class="geo-heading">
+                <h2>几何乱斗 <span class="geo-heading-en">GEOMETRY BRAWL</span></h2>
+                <p>纯黑虚空矢量坐标 · 橙色火柴人 (你) VS 数学公式实体</p>
+              </div>
+              <div class="geo-top-actions">
+                <button class="geo-btn" id="geo-btn-controls">操作设置</button>
+                <button class="geo-btn" id="geo-btn-cosmetics">护眼/音效</button>
+                <button class="geo-btn" id="geo-btn-fullscreen">全屏</button>
+              </div>
+            </div>
+
+            <div class="geo-mode-tabs" id="geo-mode-tabs">
+              <button class="geo-mode-tab active" data-geomode="trial">[ I ] 几何试炼 · 五关闯关</button>
+              <button class="geo-mode-tab" data-geomode="sandbox">[ II ] 自由公式沙盒</button>
+              <button class="geo-mode-tab" data-geomode="versus">[ III ] 双人同屏对决</button>
+            </div>
+
+            <div class="geo-setup-grid">
+              <div class="geo-block">
+                <div class="geo-block-label">P1 主修数学学派（你操控橙色空心头火柴人）</div>
+                <div class="geo-school-grid" id="geo-p1-schools"></div>
+              </div>
+
+              <div class="geo-block">
+                <div id="geo-trial-ladder-wrap">
+                  <div class="geo-block-label">试炼顺序 · 五位数学守护者</div>
+                  <div class="geo-ladder" id="geo-trial-ladder"></div>
+                </div>
+
+                <div id="geo-p2-wrap" class="hidden">
+                  <div class="geo-block-label" id="geo-p2-label">对手学派</div>
+                  <div class="geo-pill-row" id="geo-p2-schools"></div>
+                </div>
+
+                <div class="geo-block-label" style="margin-top:10px;">画板底色</div>
+                <div class="geo-pill-row" id="geo-theme-pills">
+                  <button class="geo-pill active" data-geotheme="chalkboard">■ 纯黑虚空（原版动画风）</button>
+                  <button class="geo-pill" data-geotheme="blueprint">□ 纯白演算纸（浅色矢量）</button>
+                </div>
+
+                <div class="geo-forge-tip">
+                  <div class="gft-title">公式合成槽 · 恒等式连携</div>
+                  <p>拾取悬浮算子或<strong>完美弹反</strong>拆解招式，释放重击/大招时自动触发：</p>
+                  <div class="gft-combos">
+                    <span><code>π + i</code> → <strong>e^(iπ)+1=0</strong> 清弹归零</span>
+                    <span><code>d/dx + ∫</code> → <strong>微积分循环</strong></span>
+                    <span><code>sin + x²</code> → <strong>sin²+cos²=1</strong> 护盾</span>
+                    <span><code>÷0</code> → <strong>网格黑洞奇点</strong></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="geo-setup-footer">
+              <div class="geo-ctrl-note" id="geo-setup-ctrl-note">共用你已配置好的键鼠/手柄方案与护眼设置</div>
+              <button class="geo-start-btn" id="btn-geo-start">进入坐标系 →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== GEOMETRY BRAWL IN-GAME HUD ==================== -->
+        <div id="geo-hud" class="geo-hud hidden">
+          <div class="geo-hud-top">
+            <div class="geo-fighter-hud left">
+              <div class="geo-fh-meta">
+                <span class="geo-p1-dot"></span>
+                <span class="geo-name p1-name" id="geo-p1-name">小橙 (你)</span>
+                <span class="geo-school-pill" id="geo-p1-school">e 经典欧拉</span>
+              </div>
+              <div class="geo-hp-track">
+                <div class="geo-hp-delayed" id="geo-p1-hp-del"></div>
+                <div class="geo-hp-fill" id="geo-p1-hp"></div>
+                <span class="geo-hp-txt" id="geo-p1-hp-txt">160 / 160</span>
+              </div>
+              <div class="geo-sub-row">
+                <div class="geo-energy-track">
+                  <div class="geo-energy-fill" id="geo-p1-en"></div>
+                  <span class="geo-en-txt" id="geo-p1-en-txt">数理势能 35%</span>
+                </div>
+                <div class="geo-guard-track"><div class="geo-guard-fill" id="geo-p1-guard"></div></div>
+              </div>
+              <div class="geo-forge-hud">
+                <span class="geo-forge-eq" id="geo-p1-formula">f(x) = e^(iπ) + 1 = 0</span>
+                <span class="geo-forge-slots" id="geo-p1-ops"></span>
+              </div>
+            </div>
+
+            <div class="geo-hud-center">
+              <div class="geo-stage-tag" id="geo-stage-tag">公式沙盒</div>
+              <div class="geo-timer" id="geo-timer">∞</div>
+              <div class="geo-hud-btns">
+                <button class="geo-mini-btn" id="geo-btn-hud-fs" title="全屏">⛶</button>
+                <button class="geo-mini-btn" id="geo-btn-hud-pause" title="暂停 (Esc)">⏸</button>
+              </div>
+            </div>
+
+            <div class="geo-fighter-hud right">
+              <div class="geo-fh-meta right">
+                <span class="geo-school-pill" id="geo-p2-school">sin 三角函数</span>
+                <span class="geo-name" id="geo-p2-name">数理木桩</span>
+                <span class="geo-p2-dot"></span>
+              </div>
+              <div class="geo-hp-track">
+                <div class="geo-hp-delayed" id="geo-p2-hp-del"></div>
+                <div class="geo-hp-fill p2" id="geo-p2-hp"></div>
+                <span class="geo-hp-txt" id="geo-p2-hp-txt">220 / 220</span>
+              </div>
+              <div class="geo-sub-row right">
+                <div class="geo-guard-track"><div class="geo-guard-fill" id="geo-p2-guard"></div></div>
+                <div class="geo-energy-track">
+                  <div class="geo-energy-fill" id="geo-p2-en"></div>
+                  <span class="geo-en-txt" id="geo-p2-en-txt">数理势能 35%</span>
+                </div>
+              </div>
+              <div class="geo-forge-hud right">
+                <span class="geo-forge-slots" id="geo-p2-ops"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="geo-combo-banner" id="geo-combo-hint"></div>
+
+          <div class="geo-center-banner hidden" id="geo-center-banner">
+            <div class="gcb-title" id="geo-banner-title">求解开始</div>
+            <div class="gcb-sub" id="geo-banner-sub">SOLVE &amp; BRAWL</div>
+          </div>
+
+          <!-- Sandbox Formula Lab Bottom Bar -->
+          <div class="geo-sandbox-bar hidden" id="geo-sandbox-bar">
+            <div class="gsb-row">
+              <span class="gsb-label">公式沙盒</span>
+              <select id="geo-sb-school" title="实时切换数学学派">
+                <option value="euler">e · 经典欧拉 e^(iπ)+1=0</option>
+                <option value="golden">φ · 黄金分割 5·8·13</option>
+                <option value="trig">sin · 三角函数 波矢</option>
+                <option value="calculus">∫ · 高数微积分 d/dx</option>
+                <option value="algebra">∑ · 运算魔方 2ⁿ·÷0</option>
+                <option value="euclid">△ · 欧几里得 4D 超立方体</option>
+              </select>
+              <select id="geo-sb-dummy" title="木桩模式">
+                <option value="stand">木桩: 站桩测公式</option>
+                <option value="spar">木桩: AI 实战对攻</option>
+              </select>
+              <button class="geo-sb-btn active" id="geo-sb-inf">无限势能: 开</button>
+              <button class="geo-sb-btn" id="geo-sb-theme">底色: 纯黑</button>
+              <button class="geo-sb-btn" id="geo-sb-reset">重置坐标</button>
+              <button class="geo-sb-btn danger" id="geo-sb-exit">返回大厅</button>
+            </div>
+            <div class="gsb-row gsb-ops">
+              <span class="gsb-label">注入算子:</span>
+              <div id="geo-sb-op-btns" class="gsb-op-btns"></div>
+              <button class="geo-sb-btn" id="geo-sb-clear-ops">清空</button>
+            </div>
+          </div>
+
+          <div class="geo-hud-bottom">
+            <div class="geo-key-hint" id="geo-key-hint"></div>
+          </div>
+        </div>
+
+        <!-- ==================== GEOMETRY BRAWL RESULT MODAL ==================== -->
+        <div id="geo-result-overlay" class="overlay geo-overlay hidden">
+          <div class="geo-panel geo-result-panel">
+            <div class="geo-qed-badge" id="geo-result-badge">Q.E.D.</div>
+            <h2 id="geo-result-title">证毕 · 胜利</h2>
+            <p class="geo-result-sub" id="geo-result-sub">你以清晰公式击败了本关数学守护者。</p>
+            <div class="geo-result-actions">
+              <button class="geo-start-btn hidden" id="btn-geo-next">下一位守护者 →</button>
+              <button class="geo-start-btn" id="btn-geo-rematch">再来一局</button>
+              <button class="geo-btn" id="btn-geo-to-hub">返回备战台</button>
+              <button class="geo-btn" id="btn-geo-to-title">返回主界面</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
