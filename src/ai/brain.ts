@@ -34,7 +34,7 @@ export class AiBrain {
     this.blockHoldTimer = 0;
     this.chargeHoldTimer = 0;
     this.attackCooldown = 0.35;
-    this.bossSkillTimer = 5.0;
+    this.bossSkillTimer = 6.8;
     this.trainingAttackTimer = 1.2;
     this.platformActionCd = 0.4;
     this.climbTargetY = null;
@@ -132,7 +132,7 @@ export class AiBrain {
     if (isBoss && self.action !== 'ko' && self.action !== 'hitstun' && target.action !== 'ko') {
       this.bossSkillTimer -= dt;
       if (this.bossSkillTimer <= 0) {
-        this.bossSkillTimer = 5.4 + Math.random() * 2.8;
+        this.bossSkillTimer = 7.5 + Math.random() * 3.0;
         const kind = Math.random() < 0.58 ? 'spikes' : 'eraser';
         onBossSkill?.({ kind, targetX: target.pos.x });
       }

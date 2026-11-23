@@ -23,6 +23,7 @@ export interface MathFighterRenderState {
   name: string;
   isBoss: boolean;
   isVersusP2: boolean;
+  isLocalPlayer?: boolean;
   pos: Vec2;
   facing: 1 | -1;
   school: MathSchoolId;
@@ -541,9 +542,10 @@ export class MathRenderer {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // 3. P1 Subtle Orange Coordinate Ground Locator Ring (instant visual anchor for YOU!)
-    if (f.index === 0 && f.action !== 'ko') {
-      ctx.strokeStyle = '#ff7a1a';
+    // 3. Local Player Subtle Ground Locator Ring (Orange for P1, Sky Blue for LAN Guest P2!)
+    const isLocal = f.isLocalPlayer ?? f.index === 0;
+    if (isLocal && f.action !== 'ko') {
+      ctx.strokeStyle = f.index === 0 ? '#ff7a1a' : '#2ea8ff';
       ctx.lineWidth = 1.6;
       ctx.globalAlpha = 0.65;
       ctx.setLineDash([4, 3]);
@@ -669,12 +671,12 @@ export class MathRenderer {
       ctx.fillText(opDef.glyph, ox, oy + 0.5);
     });
 
-    // 11. Unmistakable Overhead Player Indicator ("▼ 你" for P1!) + Calculus Countdown
+    // 11. Unmistakable Overhead Player Indicator ("▼ 你" for local player!) + Calculus Countdown
     if (f.action !== 'ko') {
-      if (f.index === 0) {
+      if (isLocal) {
         const py = pose.head.y - 30;
-        // Solid Orange downward triangle chevron + "你" tag
-        ctx.fillStyle = '#ff7a1a';
+        const tagCol = f.index === 0 ? '#ff7a1a' : '#2ea8ff';
+        ctx.fillStyle = tagCol;
         ctx.beginPath();
         ctx.moveTo(pose.head.x, py + 7);
         ctx.lineTo(pose.head.x - 6, py);
@@ -683,12 +685,17 @@ export class MathRenderer {
         ctx.fill();
         ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('P1 · 你', pose.head.x, py - 5);
+        ctx.fillText(f.index === 0 ? 'P1 · 你' : 'P2 · 你', pose.head.x, py - 5);
       } else if (f.isBoss) {
         ctx.fillStyle = '#f2c14e';
         ctx.font = 'italic bold 13px Georgia, serif';
         ctx.textAlign = 'center';
         ctx.fillText('BOSS · e^(iπ)', pose.head.x, pose.head.y - 28);
+      } else if (f.index === 0) {
+        ctx.fillStyle = '#ff7a1a';
+        ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('P1 · 房主', pose.head.x, pose.head.y - 28);
       } else if (f.isVersusP2) {
         ctx.fillStyle = '#2ea8ff';
         ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';

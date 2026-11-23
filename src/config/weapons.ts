@@ -21,12 +21,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       },
       light2: {
         id: 'light2', name: '开脚剪劈', startup: 5, active: 5, recovery: 10,
-        damage: 10, chipDamage: 2, knockbackX: 250, knockbackY: -130, hitstop: 0.045, hitstun: 18,
+        damage: 9, chipDamage: 2, knockbackX: 250, knockbackY: -130, hitstop: 0.045, hitstun: 18,
         reach: 100, height: 68, offsetY: -46, lungeX: 230, smearStyle: 'snip', onomatopoeia: '咔!', whooshWeight: 0.6,
       },
       light3: {
         id: 'light3', name: '立针360°画圆斩', startup: 7, active: 8, recovery: 14,
-        damage: 15, chipDamage: 4, knockbackX: 520, knockbackY: -240, hitstop: 0.072, hitstun: 26,
+        damage: 13, chipDamage: 4, knockbackX: 520, knockbackY: -240, hitstop: 0.072, hitstun: 26,
         reach: 112, height: 84, offsetY: -48, lungeX: 290, multiHit: 2, smearStyle: 'spin', onomatopoeia: '圆斩!', whooshWeight: 0.8,
       },
       up_light: {
@@ -79,7 +79,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       },
       light3: {
         id: 'light3', name: '双齿轮涂改连刷', startup: 6, active: 7, recovery: 13,
-        damage: 14, chipDamage: 4, knockbackX: 490, knockbackY: -220, hitstop: 0.07, hitstun: 25,
+        damage: 12, chipDamage: 4, knockbackX: 490, knockbackY: -220, hitstop: 0.07, hitstun: 25,
         reach: 106, height: 68, offsetY: -46, lungeX: 300, multiHit: 2, smearStyle: 'flurry', onomatopoeia: '涂白!', whooshWeight: 0.72,
       },
       up_light: {
@@ -122,7 +122,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     moves: {
       light1: {
         id: 'light1', name: '斜尺直劈', startup: 5, active: 5, recovery: 10,
-        damage: 9, chipDamage: 2, knockbackX: 210, knockbackY: -90, hitstop: 0.042, hitstun: 16,
+        damage: 8, chipDamage: 2, knockbackX: 210, knockbackY: -90, hitstop: 0.042, hitstun: 16,
         reach: 100, height: 66, offsetY: -44, lungeX: 215, smearStyle: 'slash_down', onomatopoeia: '唰!', whooshWeight: 0.55,
       },
       light2: {
@@ -132,7 +132,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       },
       light3: {
         id: 'light3', name: '30cm 满格横抽', startup: 7, active: 6, recovery: 15,
-        damage: 15, chipDamage: 4, knockbackX: 520, knockbackY: -220, hitstop: 0.074, hitstun: 26,
+        damage: 14, chipDamage: 4, knockbackX: 520, knockbackY: -220, hitstop: 0.074, hitstun: 26,
         reach: 118, height: 74, offsetY: -46, lungeX: 340, smearStyle: 'slash_down', onomatopoeia: '抽!', whooshWeight: 0.85,
       },
       up_light: {
@@ -175,27 +175,27 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     moves: {
       light1: {
         id: 'light1', name: '橡皮重砸', startup: 9, active: 6, recovery: 14,
-        damage: 14, chipDamage: 4, knockbackX: 340, knockbackY: -120, hitstop: 0.068, hitstun: 22,
+        damage: 10, chipDamage: 3, knockbackX: 340, knockbackY: -120, hitstop: 0.068, hitstun: 22,
         reach: 118, height: 82, offsetY: -48, lungeX: 190, smearStyle: 'hammer', onomatopoeia: '咚!', whooshWeight: 1.05,
       },
       light2: {
         id: 'light2', name: '掀纸上抡', startup: 10, active: 6, recovery: 15,
-        damage: 16, chipDamage: 5, knockbackX: 290, knockbackY: -370, hitstop: 0.074, hitstun: 26,
+        damage: 12, chipDamage: 4, knockbackX: 290, knockbackY: -370, hitstop: 0.074, hitstun: 26,
         reach: 120, height: 96, offsetY: -60, lungeX: 210, launcher: true, smearStyle: 'slash_up', onomatopoeia: '掀!', whooshWeight: 1.1,
       },
       light3: {
         id: 'light3', name: '裂纸重锤', startup: 12, active: 7, recovery: 20,
-        damage: 22, chipDamage: 7, knockbackX: 690, knockbackY: -250, hitstop: 0.095, hitstun: 32,
+        damage: 14, chipDamage: 5, knockbackX: 690, knockbackY: -250, hitstop: 0.095, hitstun: 32,
         reach: 132, height: 98, offsetY: -50, lungeX: 280, guardBreak: true, superArmor: true, smearStyle: 'hammer', onomatopoeia: '轰砸!', whooshWeight: 1.3,
       },
       up_light: {
         id: 'up_light', name: '巨锤冲天', startup: 9, active: 7, recovery: 17,
-        damage: 15, chipDamage: 4, knockbackX: 140, knockbackY: -600, hitstop: 0.075, hitstun: 30,
+        damage: 12, chipDamage: 3, knockbackX: 140, knockbackY: -600, hitstop: 0.075, hitstun: 30,
         reach: 104, height: 112, offsetY: -75, lungeX: 100, lungeY: -220, launcher: true, smearStyle: 'slash_up', onomatopoeia: '起!', whooshWeight: 1.05,
       },
       air_light: {
         id: 'air_light', name: '陨落重擦', startup: 9, active: 8, recovery: 16,
-        damage: 18, chipDamage: 5, knockbackX: 300, knockbackY: 480, hitstop: 0.085, hitstun: 28,
+        damage: 14, chipDamage: 4, knockbackX: 300, knockbackY: 480, hitstop: 0.085, hitstun: 28,
         reach: 120, height: 94, offsetY: -36, lungeX: 110, spike: true, smearStyle: 'hammer', onomatopoeia: '砸碎!', whooshWeight: 1.25,
       },
       heavy: {
@@ -228,7 +228,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     moves: {
       light1: {
         id: 'light1', name: '推刀快划', startup: 3, active: 4, recovery: 7,
-        damage: 6, chipDamage: 1, knockbackX: 155, knockbackY: -60, hitstop: 0.03, hitstun: 14,
+        damage: 7, chipDamage: 1, knockbackX: 155, knockbackY: -60, hitstop: 0.03, hitstun: 14,
         reach: 76, height: 54, offsetY: -44, lungeX: 250, smearStyle: 'flurry', onomatopoeia: '划!', whooshWeight: 0.35,
       },
       light2: {
@@ -286,12 +286,12 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       },
       light2: {
         id: 'light2', name: '横扫草稿', startup: 6, active: 6, recovery: 11,
-        damage: 10, chipDamage: 2, knockbackX: 300, knockbackY: -120, hitstop: 0.048, hitstun: 18,
+        damage: 9, chipDamage: 2, knockbackX: 300, knockbackY: -120, hitstop: 0.048, hitstun: 18,
         reach: 126, height: 62, offsetY: -48, lungeX: 180, smearStyle: 'spin', onomatopoeia: '扫!', whooshWeight: 0.7,
       },
       light3: {
         id: 'light3', name: '课桌转笔大风车', startup: 7, active: 9, recovery: 14,
-        damage: 14, chipDamage: 4, knockbackX: 500, knockbackY: -270, hitstop: 0.072, hitstun: 25,
+        damage: 13, chipDamage: 4, knockbackX: 500, knockbackY: -270, hitstop: 0.072, hitstun: 25,
         reach: 120, height: 88, offsetY: -50, lungeX: 250, multiHit: 2, smearStyle: 'spin', onomatopoeia: '转笔!', whooshWeight: 0.85,
       },
       up_light: {
@@ -334,17 +334,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     moves: {
       light1: {
         id: 'light1', name: '回形甩抽', startup: 6, active: 5, recovery: 10,
-        damage: 8, chipDamage: 2, knockbackX: 200, knockbackY: -80, hitstop: 0.042, hitstun: 16,
+        damage: 7, chipDamage: 2, knockbackX: 200, knockbackY: -80, hitstop: 0.042, hitstun: 16,
         reach: 138, height: 54, offsetY: -46, lungeX: 140, smearStyle: 'whip', onomatopoeia: '啪!', whooshWeight: 0.55,
       },
       light2: {
         id: 'light2', name: '铁链回卷', startup: 6, active: 6, recovery: 11,
-        damage: 10, chipDamage: 2, knockbackX: 160, knockbackY: -120, hitstop: 0.048, hitstun: 19,
+        damage: 9, chipDamage: 2, knockbackX: 160, knockbackY: -120, hitstop: 0.048, hitstun: 19,
         reach: 144, height: 60, offsetY: -48, lungeX: 160, pullEnemy: true, smearStyle: 'whip', onomatopoeia: '卷!', whooshWeight: 0.65,
       },
       light3: {
         id: 'light3', name: '连环长鞭', startup: 8, active: 6, recovery: 15,
-        damage: 15, chipDamage: 4, knockbackX: 540, knockbackY: -240, hitstop: 0.074, hitstun: 26,
+        damage: 14, chipDamage: 4, knockbackX: 540, knockbackY: -240, hitstop: 0.074, hitstun: 26,
         reach: 154, height: 70, offsetY: -48, lungeX: 220, smearStyle: 'whip', onomatopoeia: '裂鞭!', whooshWeight: 0.88,
       },
       up_light: {
@@ -387,17 +387,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     moves: {
       light1: {
         id: 'light1', name: '斜边切角', startup: 4, active: 5, recovery: 8,
-        damage: 8, chipDamage: 2, knockbackX: 190, knockbackY: -80, hitstop: 0.038, hitstun: 15,
+        damage: 7, chipDamage: 2, knockbackX: 190, knockbackY: -80, hitstop: 0.038, hitstun: 15,
         reach: 82, height: 60, offsetY: -46, lungeX: 220, smearStyle: 'slash_down', onomatopoeia: '切!', whooshWeight: 0.45,
       },
       light2: {
         id: 'light2', name: '直角回削', startup: 5, active: 5, recovery: 9,
-        damage: 10, chipDamage: 2, knockbackX: 240, knockbackY: -130, hitstop: 0.044, hitstun: 18,
+        damage: 9, chipDamage: 2, knockbackX: 240, knockbackY: -130, hitstop: 0.044, hitstun: 18,
         reach: 88, height: 64, offsetY: -46, lungeX: 250, smearStyle: 'slash_up', onomatopoeia: '削!', whooshWeight: 0.52,
       },
       light3: {
         id: 'light3', name: '360°量角旋刃', startup: 6, active: 8, recovery: 13,
-        damage: 14, chipDamage: 4, knockbackX: 480, knockbackY: -220, hitstop: 0.07, hitstun: 25,
+        damage: 13, chipDamage: 4, knockbackX: 480, knockbackY: -220, hitstop: 0.07, hitstun: 25,
         reach: 96, height: 76, offsetY: -48, lungeX: 300, multiHit: 2, smearStyle: 'spin', onomatopoeia: '旋!', whooshWeight: 0.7,
       },
       up_light: {
@@ -440,17 +440,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     moves: {
       light1: {
         id: 'light1', name: '快剪一刀', startup: 5, active: 5, recovery: 9,
-        damage: 9, chipDamage: 2, knockbackX: 200, knockbackY: -80, hitstop: 0.042, hitstun: 16,
+        damage: 8, chipDamage: 2, knockbackX: 200, knockbackY: -80, hitstop: 0.042, hitstun: 16,
         reach: 90, height: 62, offsetY: -46, lungeX: 210, smearStyle: 'snip', onomatopoeia: '咔!', whooshWeight: 0.55,
       },
       light2: {
         id: 'light2', name: '双刃错剪', startup: 5, active: 5, recovery: 10,
-        damage: 11, chipDamage: 3, knockbackX: 240, knockbackY: -120, hitstop: 0.05, hitstun: 18,
+        damage: 10, chipDamage: 3, knockbackX: 240, knockbackY: -120, hitstop: 0.05, hitstun: 18,
         reach: 94, height: 68, offsetY: -46, lungeX: 240, multiHit: 2, smearStyle: 'snip', onomatopoeia: '咔嚓!', whooshWeight: 0.65,
       },
       light3: {
         id: 'light3', name: '十字剪裁', startup: 7, active: 6, recovery: 14,
-        damage: 17, chipDamage: 5, knockbackX: 560, knockbackY: -240, hitstop: 0.08, hitstun: 27,
+        damage: 15, chipDamage: 4, knockbackX: 560, knockbackY: -240, hitstop: 0.08, hitstun: 27,
         reach: 102, height: 78, offsetY: -48, lungeX: 330, smearStyle: 'snip', onomatopoeia: '剪断!', whooshWeight: 0.85,
       },
       up_light: {
@@ -493,17 +493,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     moves: {
       light1: {
         id: 'light1', name: '铁机直拳', startup: 5, active: 4, recovery: 8,
-        damage: 8, chipDamage: 2, knockbackX: 200, knockbackY: -70, hitstop: 0.04, hitstun: 16,
+        damage: 7, chipDamage: 2, knockbackX: 200, knockbackY: -70, hitstop: 0.04, hitstun: 16,
         reach: 74, height: 54, offsetY: -46, lungeX: 210, smearStyle: 'thrust', onomatopoeia: '砰!', whooshWeight: 0.55,
       },
       light2: {
         id: 'light2', name: '合口夹击', startup: 5, active: 5, recovery: 10,
-        damage: 10, chipDamage: 2, knockbackX: 260, knockbackY: -130, hitstop: 0.05, hitstun: 18,
+        damage: 9, chipDamage: 2, knockbackX: 260, knockbackY: -130, hitstop: 0.05, hitstun: 18,
         reach: 82, height: 60, offsetY: -48, lungeX: 240, smearStyle: 'hammer', onomatopoeia: '咔哒!', whooshWeight: 0.65,
       },
       light3: {
         id: 'light3', name: '近距爆钉轰拳', startup: 7, active: 6, recovery: 14,
-        damage: 16, chipDamage: 4, knockbackX: 560, knockbackY: -240, hitstop: 0.078, hitstun: 26,
+        damage: 14, chipDamage: 4, knockbackX: 560, knockbackY: -240, hitstop: 0.078, hitstun: 26,
         reach: 92, height: 68, offsetY: -48, lungeX: 320, smearStyle: 'thrust', onomatopoeia: '钉爆!', whooshWeight: 0.85,
       },
       up_light: {
@@ -556,7 +556,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
       },
       light3: {
         id: 'light3', name: '旋风重点击', startup: 5, active: 7, recovery: 12,
-        damage: 14, chipDamage: 3, knockbackX: 490, knockbackY: -240, hitstop: 0.068, hitstun: 25,
+        damage: 13, chipDamage: 3, knockbackX: 490, knockbackY: -240, hitstop: 0.068, hitstun: 25,
         reach: 96, height: 72, offsetY: -48, lungeX: 400, multiHit: 2, smearStyle: 'spin', onomatopoeia: '重点!', whooshWeight: 0.62,
       },
       up_light: {
@@ -599,17 +599,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     moves: {
       light1: {
         id: 'light1', name: '金尖点锋', startup: 5, active: 5, recovery: 9,
-        damage: 9, chipDamage: 2, knockbackX: 220, knockbackY: -85, hitstop: 0.042, hitstun: 16,
+        damage: 8, chipDamage: 2, knockbackX: 220, knockbackY: -85, hitstop: 0.042, hitstun: 16,
         reach: 102, height: 60, offsetY: -46, lungeX: 220, smearStyle: 'thrust', onomatopoeia: '点!', whooshWeight: 0.52,
       },
       light2: {
         id: 'light2', name: '狂草挑墨', startup: 5, active: 5, recovery: 10,
-        damage: 11, chipDamage: 2, knockbackX: 255, knockbackY: -140, hitstop: 0.048, hitstun: 18,
+        damage: 10, chipDamage: 2, knockbackX: 255, knockbackY: -140, hitstop: 0.048, hitstun: 18,
         reach: 106, height: 70, offsetY: -48, lungeX: 245, smearStyle: 'slash_up', onomatopoeia: '挥!', whooshWeight: 0.62,
       },
       light3: {
         id: 'light3', name: '大笔勾批', startup: 7, active: 6, recovery: 14,
-        damage: 16, chipDamage: 4, knockbackX: 550, knockbackY: -240, hitstop: 0.076, hitstun: 26,
+        damage: 15, chipDamage: 4, knockbackX: 550, knockbackY: -240, hitstop: 0.076, hitstun: 26,
         reach: 116, height: 76, offsetY: -48, lungeX: 340, smearStyle: 'slash_down', onomatopoeia: '勾批!', whooshWeight: 0.85,
       },
       up_light: {

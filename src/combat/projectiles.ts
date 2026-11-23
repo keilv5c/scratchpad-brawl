@@ -157,28 +157,28 @@ export function createProjectile(
       return {
         id, ownerIndex, kind, pos: { ...pos }, vel: { x: 0, y: 0 },
         facing: 1, angle: 0, radius: 32, width: 62, height: 280,
-        damage: 18, knockbackX: 260, knockbackY: -560,
+        damage: 14, knockbackX: 260, knockbackY: -540,
         color, accent, life: 0.62, maxLife: 0.62, rotation: 0, hitIds: new Set(), telegraphTime: 0.14, erupted: false, age: 0,
       };
     case 'stapler_hazard':
       return {
         id, ownerIndex, kind, pos: { ...pos }, vel: { x: 0, y: 0 },
         facing: 1, angle: 0, radius: 44, width: 96, height: 76,
-        damage: 15, knockbackX: 380, knockbackY: -360,
+        damage: 13, knockbackX: 380, knockbackY: -360,
         color: '#2b3242', accent: '#d93636', life: 1.4, maxLife: 1.4, rotation: 0, hitIds: new Set(), telegraphTime: 0.85, erupted: false, age: 0,
       };
     case 'boss_spike':
       return {
         id, ownerIndex, kind, pos: { ...pos }, vel: { x: 0, y: 0 },
         facing, angle: 0, radius: 26, width: 48, height: 118,
-        damage: 16, knockbackX: 220, knockbackY: -520,
-        color, accent, life: 1.45, maxLife: 1.45, rotation: 0, hitIds: new Set(), telegraphTime: 0.62, erupted: false, age: 0,
+        damage: 11, knockbackX: 220, knockbackY: -480,
+        color, accent, life: 1.6, maxLife: 1.6, rotation: 0, hitIds: new Set(), telegraphTime: 0.78, erupted: false, age: 0,
       };
     case 'boss_eraser':
       return {
-        id, ownerIndex, kind, pos: { ...pos }, vel: { x: facing * 420, y: 0 },
+        id, ownerIndex, kind, pos: { ...pos }, vel: { x: facing * 390, y: 0 },
         facing, angle: facing > 0 ? 0 : Math.PI, radius: 42, width: 90, height: 64,
-        damage: 14, knockbackX: 620, knockbackY: -260,
+        damage: 10, knockbackX: 560, knockbackY: -240,
         color: '#e87fa0', accent: '#3e78c8', life: 1.65, maxLife: 1.65, rotation: 0, hitIds: new Set(), age: 0,
       };
   }

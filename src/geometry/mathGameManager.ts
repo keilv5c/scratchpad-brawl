@@ -4,7 +4,7 @@ import {
   PlatformDef,
   Vec2,
 } from '../types';
-import { clamp, Rect, rectsOverlap } from '../engine/math';
+import { clamp, lerp, Rect, rectsOverlap } from '../engine/math';
 import { Camera } from '../engine/camera';
 import { KeyboardInputManager, createEmptyInput, decayInputBuffers } from '../engine/input';
 import { ProceduralSkeleton } from '../physics/skeleton';
@@ -13,6 +13,21 @@ import { SoundEngine } from '../audio/soundEngine';
 import { BgmEngine } from '../audio/bgmEngine';
 import { MathSynth } from './mathSynth';
 import { MathFighterRenderState, MathPlatformDef, MathRenderer } from './mathRenderer';
+import {
+  LanBestOf,
+  LanFxEventPayload,
+  LanGeoFighterState,
+  LanGeometrySnapshot,
+  LanInputPacket,
+  LanLobbyState,
+  LanPeerMessage,
+  LanRole,
+} from '../net/lanTypes';
+import {
+  GuestInputEncoder,
+  HostRemoteInputDecoder,
+  SnapshotInterpolator,
+} from '../net/lanClient';
 import {
   IDENTITY_COMBOS,
   MATH_OPERATORS,
@@ -424,6 +439,78 @@ class MathFighter {
       });
     }
   }
+
+  public updateVisualsOnly(dt: number): void {
+    this.animPhase += dt;
+    for (let i = this.afterimages.length - 1; i >= 0; i--) {
+      this.afterimages[i].life -= dt;
+      if (this.afterimages[i].life <= 0) this.afterimages.splice(i, 1);
+    }
+    for (let i = this.smears.length - 1; i >= 0; i--) {
+      this.smears[i].life -= dt;
+      if (this.smears[i].life <= 0) this.smears.splice(i, 1);
+    }
+    if (this.action === 'dash' || this.action === 'super_active') {
+      this.afterimageTimer += dt;
+      if (this.afterimageTimer >= 0.036) {
+        this.afterimageTimer = 0;
+        this.spawnAfterimage(this.school === 'euler' ? '#9b8aff' : this.color);
+      }
+    }
+    const poseWeapon =
+      this.school === 'calculus'
+        ? 'eraser'
+        : this.school === 'trig'
+          ? 'pencil'
+          : this.school === 'golden'
+            ? 'whip'
+            : this.school === 'euclid'
+              ? 'boomerang'
+              : 'ruler';
+
+    const m = this.getMoveSpec();
+    let attackPhase: 'startup' | 'active' | 'recovery' = 'startup';
+    let attackProgress = 0;
+    if (m && (this.action === 'attack' || this.action === 'super_active')) {
+      const total = Math.max(1, m.startup + m.active + m.recovery);
+      attackProgress = clamp(this.actionFrames / total, 0, 1);
+      if (this.actionFrames < m.startup) attackPhase = 'startup';
+      else if (this.actionFrames < m.startup + m.active) attackPhase = 'active';
+      else attackPhase = 'recovery';
+    }
+
+    const pose = this.skeleton.update(
+      {
+        pos: this.pos,
+        vx: this.vel.x,
+        vy: this.vel.y,
+        facing: this.facing,
+        action: this.action,
+        actionTime: this.actionFrames / 60,
+        animPhase: this.animPhase,
+        weapon: poseWeapon,
+        attackKind: this.attackKind,
+        attackProgress,
+        attackPhase,
+        chargeRatio: clamp(this.chargeFrames / this.maxChargeFrames, 0, 1),
+        onGround: this.onGround,
+      },
+      dt
+    );
+    this.scarf.update(pose.neck, this.facing, this.vel.x, this.animPhase);
+
+    if ((this.action === 'attack' && attackPhase === 'active') || this.action === 'super_active') {
+      const isHeavy = this.attackKind === 'heavy' || this.attackKind === 'super' || this.attackKind === 'light3';
+      this.smears.push({
+        base: { ...pose.weaponBase },
+        tip: { ...pose.weaponTip },
+        color: this.attackKind === 'super' ? this.secondaryColor : this.color,
+        life: isHeavy ? 0.16 : 0.1,
+        maxLife: isHeavy ? 0.16 : 0.1,
+        heavy: isHeavy,
+      });
+    }
+  }
 }
 
 export interface GeoUiCallbacks {
@@ -504,6 +591,21 @@ export class MathGameManager {
   private aiWantBlock = false;
   private aiDifficulty = 0.65;
 
+  // LAN Multiplayer (Host-authoritative 60Hz snapshots + Guest adaptive smooth interpolation)
+  public lanRole: LanRole = 'none';
+  private lanBestOf: LanBestOf = 3;
+  private lanP1Wins = 0;
+  private lanP2Wins = 0;
+  private lanRound = 1;
+  private lanNextRoundTimer = 0;
+  private lanRemoteInput: InputState = createEmptyInput();
+  private lanRemoteDecoder = new HostRemoteInputDecoder();
+  private lanGuestEncoder = new GuestInputEncoder();
+  private lanSnapSeq = 0;
+  private lanInterp = new SnapshotInterpolator<LanGeometrySnapshot>();
+  private lanOnSend: ((msg: LanPeerMessage, droppable?: boolean) => void) | null = null;
+  private lanOnMatchEnd: ((winnerIdx: 0 | 1, p1Wins: number, p2Wins: number, bestOf: LanBestOf) => void) | null = null;
+
   constructor(
     canvas: HTMLCanvasElement,
     input: KeyboardInputManager,
@@ -541,13 +643,14 @@ export class MathGameManager {
   }
 
   public setPaused(p: boolean): void {
-    if (!this.active) return;
+    if (!this.active || this.lanRole !== 'none') return;
     this.paused = p;
     this.input.clearAll();
     this.callbacks.onPauseChanged(p);
   }
 
   public stop(): void {
+    this.lanRole = 'none';
     this.active = false;
     this.paused = false;
     this.phase = 'idle';
@@ -557,6 +660,377 @@ export class MathGameManager {
     }
     this.input.clearAll();
     this.sound.setSlowMoFilter(false);
+  }
+
+  public setLanTransport(
+    onSend: (msg: LanPeerMessage, droppable?: boolean) => void,
+    onMatchEnd: (winnerIdx: 0 | 1, p1Wins: number, p2Wins: number, bestOf: LanBestOf) => void
+  ): void {
+    this.lanOnSend = onSend;
+    this.lanOnMatchEnd = onMatchEnd;
+  }
+
+  public stopLanMatch(): void {
+    this.lanRole = 'none';
+    this.lanNextRoundTimer = 0;
+    this.lanRemoteDecoder.reset();
+    this.lanGuestEncoder.reset();
+    this.lanInterp.reset();
+    this.lanRemoteInput = createEmptyInput();
+  }
+
+  public startLanMatch(role: 'host' | 'guest', lobby: LanLobbyState): void {
+    this.lanRole = role;
+    this.lanBestOf = lobby.bestOf;
+    this.lanP1Wins = 0;
+    this.lanP2Wins = 0;
+    this.lanRound = 1;
+    this.lanNextRoundTimer = 0;
+    this.lanRemoteDecoder.reset();
+    this.lanGuestEncoder.reset();
+    this.lanInterp.reset();
+    this.lanRemoteInput = createEmptyInput();
+    this.lanSnapSeq = 0;
+
+    this.mode = 'versus';
+    this.themeId = lobby.geoThemeId ?? 'chalkboard';
+    this.paused = false;
+    this.entities = [];
+    this.pickups = [];
+    this.warps = [];
+    this.particles = [];
+    this.popTexts = [];
+    this.delayedEvents = [];
+    this.castDamageDealt.clear();
+    this.cutIn.active = false;
+    this.dimTimer = 0;
+    this.hitstopTimer = 0;
+    this.slowMoTimer = 0;
+    this.timeScale = 1.0;
+    this.pickupSpawnTimer = 2.6;
+    this.input.clearAll();
+    this.sound.setSlowMoFilter(false);
+
+    const hostLabel = role === 'host' ? `${lobby.hostName} (你)` : `${lobby.hostName} (房主)`;
+    const guestLabel = role === 'guest' ? `${lobby.guestName} (你)` : `${lobby.guestName} (客机)`;
+    this.p1 = new MathFighter(0, hostLabel, { x: 460, y: GEO_FLOOR_Y }, 1, lobby.hostSchool, 160);
+    this.p2 = new MathFighter(1, guestLabel, { x: 1020, y: GEO_FLOOR_Y }, -1, lobby.guestSchool, 160);
+    this.roundTimer = 99;
+    this.phase = 'intro';
+    this.phaseTimer = 1.25;
+    this.bannerText = this.lanBestOf > 1 ? `第 1 回合 · BO${this.lanBestOf}` : '几何联机对决!';
+    this.bannerSub = `${MATH_SCHOOLS[lobby.hostSchool].formula}  VS  ${MATH_SCHOOLS[lobby.guestSchool].formula}`;
+    this.bgm.setIntensity('fight');
+
+    if (role === 'host') {
+      this.spawnOperatorPickupAt(740, GEO_FLOOR_Y - 125, 'pi');
+      this.spawnOperatorPickupAt(740, 290, 'mul2');
+    }
+
+    this.camera.setWorldSize(GEO_WORLD_W, GEO_WORLD_H);
+    this.camera.reset();
+    this.ensureLoop();
+    if (role === 'host') {
+      this.emitLanSnapshot();
+    }
+  }
+
+  private startNextLanRound(): void {
+    this.lanRound++;
+    this.entities = [];
+    this.pickups = [];
+    this.warps = [];
+    this.delayedEvents = [];
+    this.castDamageDealt.clear();
+    this.cutIn.active = false;
+    this.dimTimer = 0;
+    this.input.clearAll();
+    this.p1.reset({ x: 460, y: GEO_FLOOR_Y }, 1);
+    this.p2.reset({ x: 1020, y: GEO_FLOOR_Y }, -1);
+    this.spawnOperatorPickupAt(740, GEO_FLOOR_Y - 125, 'pi');
+    this.spawnOperatorPickupAt(740, 290, 'mul2');
+    this.roundTimer = 99;
+    this.phase = 'intro';
+    this.phaseTimer = 1.2;
+    this.bannerText = `第 ${this.lanRound} 回合`;
+    this.bannerSub = `比分 ${this.lanP1Wins} : ${this.lanP2Wins} (先胜 ${Math.ceil(this.lanBestOf / 2)} 局)`;
+    this.synth.playEulerChord(false);
+    this.emitLanFx({ kind: 'sfx', name: 'chord' });
+  }
+
+  public receiveLanInput(pkt: LanInputPacket): void {
+    if (this.lanRole !== 'host') return;
+    this.lanRemoteDecoder.applyPacket(pkt, this.lanRemoteInput);
+  }
+
+  public receiveLanSnapshot(snap: LanGeometrySnapshot): void {
+    if (this.lanRole !== 'guest') return;
+    this.lanInterp.push(snap, performance.now());
+  }
+
+  public receiveLanFx(ev: LanFxEventPayload): void {
+    if (this.lanRole !== 'guest') return;
+    switch (ev.kind) {
+      case 'pop':
+        this.spawnPopText(ev.text, ev.x, ev.y, ev.color, ev.scale ?? 1.0, ev.sub);
+        break;
+      case 'hit':
+        this.sound.playHit(ev.dmg, !!ev.heavy, !!ev.guardBreak);
+        this.spawnGlyphBurst(ev.x, ev.y, ev.color, ev.heavy ? 8 : 4);
+        this.shakeCamera(ev.heavy ? 8 : 4, ev.dirX ?? 0, ev.dirY ?? 0);
+        break;
+      case 'parry':
+        this.sound.playParry();
+        this.synth.playOperatorPickup();
+        this.spawnGlyphBurst(ev.x, ev.y, ev.color, 8);
+        this.shakeCamera(7);
+        break;
+      case 'cutin':
+        this.cutIn = {
+          active: true,
+          age: 0,
+          duration: 0.92,
+          title: ev.title,
+          formula: ev.formula ?? '',
+          sub: ev.sub ?? '',
+          color: ev.color,
+          facing: ev.facing,
+        };
+        this.triggerSpotlightDim(ev.dimDur ?? 0.9, { x: ev.fxX ?? GEO_WORLD_W * 0.5, y: ev.fxY ?? GEO_FLOOR_Y - 80 });
+        this.synth.playEulerChord(true);
+        break;
+      case 'sfx':
+        if (ev.name === 'block') this.sound.playBlock();
+        else if (ev.name === 'dodge') this.synth.playPhaseDash();
+        else if (ev.name === 'chord') this.synth.playEulerChord(false);
+        else if (ev.name === 'chord_big') this.synth.playEulerChord(true);
+        else if (ev.name === 'pickup') this.synth.playOperatorPickup();
+        break;
+      case 'burst':
+        this.spawnGlyphBurst(ev.x, ev.y, ev.color, ev.count);
+        break;
+      case 'shake':
+        this.shakeCamera(ev.mag, ev.dx ?? 0, ev.dy ?? 0);
+        break;
+      case 'match_end':
+        this.phase = 'match_over';
+        this.lanP1Wins = ev.p1Wins;
+        this.lanP2Wins = ev.p2Wins;
+        this.lanBestOf = ev.bestOf;
+        this.lanOnMatchEnd?.(ev.winnerIdx, ev.p1Wins, ev.p2Wins, ev.bestOf);
+        break;
+    }
+  }
+
+  private emitLanFx(ev: LanFxEventPayload): void {
+    if (this.lanRole !== 'host' || !this.lanOnSend) return;
+    this.lanOnSend({ t: 'fx', mode: 'geometry', ev }, false);
+  }
+
+  private packGeoFighter(f: MathFighter): LanGeoFighterState {
+    return {
+      x: Math.round(f.pos.x * 10) / 10,
+      y: Math.round(f.pos.y * 10) / 10,
+      vx: Math.round(f.vel.x),
+      vy: Math.round(f.vel.y),
+      fc: f.facing,
+      act: f.action,
+      af: f.actionFrames,
+      ak: f.attackKind,
+      hp: Math.round(f.hp * 10) / 10,
+      mhp: f.maxHp,
+      dhp: Math.round(f.delayedHp * 10) / 10,
+      en: Math.round(f.energy * 10) / 10,
+      gm: Math.round(f.guardMeter),
+      ch: f.chargeFrames,
+      hf: f.hurtFlashFrames,
+      pw: f.parryWindowFrames,
+      sh: Math.round(f.shieldTimer * 10) / 10,
+      dh: Math.round(f.derivHasteTimer * 10) / 10,
+      pd: f.polyDegree,
+      ops: [...f.operators],
+      sc: f.school,
+      cs: f.comboReceived,
+      onG: f.onGround,
+    };
+  }
+
+  private emitLanSnapshot(): void {
+    if (this.lanRole !== 'host' || !this.lanOnSend) return;
+    const phaseMap = this.phase === 'intro' || this.phase === 'fighting' || this.phase === 'match_over' ? this.phase : 'fighting';
+    const snap: LanGeometrySnapshot = {
+      t: 'geo_snap',
+      seq: ++this.lanSnapSeq,
+      ts: Math.round(performance.now()),
+      phase: phaseMap,
+      timer: Math.round(this.roundTimer * 10) / 10,
+      bannerText: this.bannerText,
+      bannerSub: this.bannerSub,
+      theme: this.themeId,
+      f: [this.packGeoFighter(this.p1), this.packGeoFighter(this.p2)],
+      en: this.entities.map((e) => ({
+        id: e.id,
+        oi: e.ownerIndex,
+        k: e.kind,
+        x: Math.round(e.pos.x * 10) / 10,
+        y: Math.round(e.pos.y * 10) / 10,
+        vx: Math.round(e.vel.x),
+        vy: Math.round(e.vel.y),
+        ang: Math.round(e.angle * 100) / 100,
+        fc: e.facing,
+        r: Math.round(e.radius * 10) / 10,
+        w: Math.round(e.width),
+        h: Math.round(e.height),
+        col: e.color,
+        scol: e.secondaryColor,
+        life: Math.round(e.life * 100) / 100,
+        ml: e.maxLife,
+        age: Math.round(e.age * 100) / 100,
+        gl: e.glyph,
+        amp: e.amplitude,
+        wl: e.wavelength,
+        sl: e.sliceCount,
+        sld: e.slammed,
+        sc: e.scale,
+        neg: e.negated,
+        imp: e.imagPhase,
+      })),
+      pk: this.pickups.map((pk) => ({
+        id: pk.id,
+        op: pk.op,
+        x: Math.round(pk.pos.x),
+        y: Math.round(pk.pos.y),
+        baseY: pk.baseY,
+        bobPhase: Math.round(pk.bobPhase * 100) / 100,
+        life: Math.round(pk.life * 10) / 10,
+        maxLife: pk.maxLife,
+      })),
+      wp: this.warps.map((w) => ({
+        x: Math.round(w.x),
+        y: Math.round(w.y),
+        strength: Math.round(w.strength),
+        radius: Math.round(w.radius),
+        life: Math.round(w.life * 100) / 100,
+        maxLife: w.maxLife,
+        color: w.color,
+      })),
+      p1Wins: this.lanP1Wins,
+      p2Wins: this.lanP2Wins,
+      bestOf: this.lanBestOf,
+    };
+    this.lanOnSend(snap, true);
+  }
+
+  private applyLanGeoFighter(f: MathFighter, prev: LanGeoFighterState, next: LanGeoFighterState, alpha: number): void {
+    const dist = Math.hypot(next.x - prev.x, next.y - prev.y);
+    if (dist > 260) {
+      f.pos.x = next.x;
+      f.pos.y = next.y;
+    } else {
+      f.pos.x = lerp(prev.x, next.x, alpha);
+      f.pos.y = lerp(prev.y, next.y, alpha);
+    }
+    f.vel.x = lerp(prev.vx, next.vx, alpha);
+    f.vel.y = lerp(prev.vy, next.vy, alpha);
+    f.facing = next.fc;
+    f.action = next.act as MathFighter['action'];
+    f.actionFrames = next.af;
+    f.attackKind = next.ak as MathFighter['attackKind'];
+    f.hp = next.hp;
+    f.maxHp = next.mhp;
+    f.delayedHp = next.dhp;
+    f.energy = next.en;
+    f.guardMeter = next.gm;
+    f.chargeFrames = next.ch;
+    f.hurtFlashFrames = next.hf;
+    f.parryWindowFrames = next.pw;
+    f.shieldTimer = next.sh;
+    f.derivHasteTimer = next.dh;
+    f.polyDegree = next.pd;
+    f.operators = [...next.ops];
+    if (f.school !== next.sc) f.setSchool(next.sc);
+    f.comboReceived = next.cs;
+    f.onGround = next.onG;
+  }
+
+  private tickLanGuest(realDt: number): void {
+    // 1. Compute Guest local 360-degree aim relative to Guest's own fighter (P2) & transmit input immediately!
+    const canControl = this.phase === 'fighting';
+    this.resolveAimForPlayer(0, this.p2, this.input.p1, canControl);
+    const pkt = this.lanGuestEncoder.consumeAndEncode(this.input.p1, performance.now());
+    if (pkt && this.lanOnSend) {
+      this.lanOnSend(pkt, false);
+    }
+
+    // 2. Sample adaptive low-latency snapshot buffer & smoothly interpolate fighters & math constructs!
+    const sample = this.lanInterp.sample(performance.now());
+    if (sample) {
+      const { prev, next, alpha } = sample;
+      this.phase = next.phase;
+      this.roundTimer = next.timer;
+      this.bannerText = next.bannerText;
+      this.bannerSub = next.bannerSub;
+      this.themeId = next.theme;
+      this.lanP1Wins = next.p1Wins;
+      this.lanP2Wins = next.p2Wins;
+      this.lanBestOf = next.bestOf;
+
+      this.applyLanGeoFighter(this.p1, prev.f[0], next.f[0], alpha);
+      this.applyLanGeoFighter(this.p2, prev.f[1], next.f[1], alpha);
+
+      const prevEntMap = new Map(prev.en.map((e) => [e.id, e]));
+      this.entities = next.en.map((ne) => {
+        const pe = prevEntMap.get(ne.id);
+        const ex = pe && Math.hypot(ne.x - pe.x, ne.y - pe.y) < 300 ? lerp(pe.x, ne.x, alpha) : ne.x;
+        const ey = pe && Math.hypot(ne.x - pe.x, ne.y - pe.y) < 300 ? lerp(pe.y, ne.y, alpha) : ne.y;
+        return {
+          id: ne.id,
+          ownerIndex: ne.oi,
+          kind: ne.k,
+          pos: { x: ex, y: ey },
+          vel: { x: ne.vx, y: ne.vy },
+          angle: ne.ang,
+          facing: ne.fc,
+          radius: ne.r,
+          width: ne.w,
+          height: ne.h,
+          damage: 0,
+          knockbackX: 0,
+          knockbackY: 0,
+          color: ne.col,
+          secondaryColor: ne.scol,
+          life: ne.life,
+          maxLife: ne.ml,
+          age: ne.age,
+          hitIds: new Set(),
+          glyph: ne.gl,
+          amplitude: ne.amp,
+          wavelength: ne.wl,
+          sliceCount: ne.sl,
+          slammed: ne.sld,
+          scale: ne.sc,
+          negated: ne.neg,
+          imagPhase: ne.imp,
+        };
+      });
+
+      this.pickups = next.pk.map((pk) => ({
+        id: pk.id,
+        op: pk.op,
+        pos: { x: pk.x, y: pk.y },
+        baseY: pk.baseY,
+        bobPhase: pk.bobPhase,
+        life: pk.life,
+        maxLife: pk.maxLife,
+      }));
+      this.warps = next.wp.map((w) => ({ ...w }));
+    }
+
+    // 3. Full 60/120fps local skeleton, smear trails, scarf cloth & camera!
+    this.p1.updateVisualsOnly(realDt);
+    this.p2.updateVisualsOnly(realDt);
+    this.camera.update(realDt, this.p1.pos, this.p2.pos, false);
+    this.emitHud();
   }
 
   public startPreview(school: MathSchoolId, theme: MathThemeId): void {
@@ -574,6 +1048,7 @@ export class MathGameManager {
   }
 
   public startMatch(cfg: GeoMatchConfig): void {
+    this.lanRole = 'none';
     this.mode = cfg.mode;
     this.themeId = cfg.theme;
     this.trialStageIndex = cfg.trialStageIndex ?? 0;
@@ -708,6 +1183,11 @@ export class MathGameManager {
     // Visual effects (particles, pop-texts, spacetime grid warps) ALWAYS run smoothly every rAF frame!
     this.updateWarpsAndParticles(realDt);
 
+    if (this.lanRole === 'guest') {
+      this.tickLanGuest(realDt);
+      return;
+    }
+
     if (this.slowMoTimer > 0) {
       this.slowMoTimer -= realDt;
       if (this.slowMoTimer <= 0) {
@@ -750,6 +1230,14 @@ export class MathGameManager {
         const fn = this.delayedEvents[i].fn;
         this.delayedEvents.splice(i, 1);
         fn();
+      }
+    }
+
+    // Best-Of multi-round transition timer for Geometry LAN Host!
+    if (this.lanRole === 'host' && this.lanNextRoundTimer > 0) {
+      this.lanNextRoundTimer -= dt;
+      if (this.lanNextRoundTimer <= 0) {
+        this.startNextLanRound();
       }
     }
 
@@ -802,17 +1290,25 @@ export class MathGameManager {
 
     // 360° Aim resolution for P1 & P2 (Gamepad Right Stick OR Mouse Aim)
     this.resolveAimForPlayer(0, this.p1, this.input.p1, canControl);
-    if (this.mode === 'versus') {
+    if (this.mode === 'versus' && this.lanRole === 'none') {
       this.resolveAimForPlayer(1, this.p2, this.input.p2, canControl);
     }
 
-    const p2Inp = this.mode === 'versus' ? this.input.p2 : this.computeAiInput(dt);
+    const p2Inp =
+      this.lanRole === 'host'
+        ? this.lanRemoteInput
+        : this.mode === 'versus'
+          ? this.input.p2
+          : this.computeAiInput(dt);
 
     this.updateFighter(this.p1, this.p2, this.input.p1, dt, canControl);
     this.updateFighter(this.p2, this.p1, p2Inp, dt, canControl);
 
     decayInputBuffers(this.input.p1);
     decayInputBuffers(this.input.p2);
+    if (this.lanRole === 'host') {
+      decayInputBuffers(this.lanRemoteInput);
+    }
 
     this.resolveSeparation();
     this.updatePickups(dt);
@@ -820,6 +1316,10 @@ export class MathGameManager {
 
     if (this.phase === 'fighting') {
       this.resolveMeleeCombat();
+    }
+
+    if (this.lanRole === 'host') {
+      this.emitLanSnapshot();
     }
   }
 
@@ -2011,8 +2511,11 @@ export class MathGameManager {
   private triggerPerfectDodge(f: MathFighter): void {
     f.addEnergy(16);
     this.synth.playPhaseDash();
-    this.spawnPopText(f.school === 'euler' ? '×i' : 'Δx', f.pos.x, f.pos.y - 82, f.color, 0.96);
+    const txt = f.school === 'euler' ? '×i' : 'Δx';
+    this.spawnPopText(txt, f.pos.x, f.pos.y - 82, f.color, 0.96);
     this.spawnGlyphBurst(f.pos.x, f.pos.y - 44, f.color, 5);
+    this.emitLanFx({ kind: 'pop', x: Math.round(f.pos.x), y: Math.round(f.pos.y - 82), text: txt, color: f.color, scale: 0.96 });
+    this.emitLanFx({ kind: 'sfx', name: 'dodge' });
   }
 
   private applyMathDamage(
@@ -2030,13 +2533,18 @@ export class MathGameManager {
     castId?: string,
     castCap?: number
   ): void {
+    // Trial Mode Stage 4/5 AI gentle PvE damage scaling (Versus/LAN PvP stay 100% symmetrical!)
+    const trialAiScale = this.mode === 'trial' && atk.index === 1 && def.index === 0 && this.trialStageIndex >= 3 ? 0.88 : 1.0;
+    const scaledDamage = Math.max(1, Math.round(damage * trialAiScale));
+    const scaledCap = castCap && castCap > 0 ? Math.max(1, Math.round(castCap * trialAiScale)) : castCap;
+
     // Enforce strict per-cast damage cap so multi-hit/split formulas stay fair & never one-shot!
-    let cappedDmg = damage;
-    if (castId && castCap && castCap > 0) {
+    let cappedDmg = scaledDamage;
+    if (castId && scaledCap && scaledCap > 0) {
       const dealt = this.castDamageDealt.get(castId) ?? 0;
-      const rem = Math.max(0, castCap - dealt);
+      const rem = Math.max(0, scaledCap - dealt);
       if (rem <= 0) return;
-      cappedDmg = Math.min(damage, rem);
+      cappedDmg = Math.min(scaledDamage, rem);
     }
 
     const facingAtk = (atk.pos.x - def.pos.x) * def.facing >= -18;
@@ -2063,6 +2571,8 @@ export class MathGameManager {
       this.synth.playOperatorPickup();
       this.spawnPopText('弹反', hitPos.x, hitPos.y - 16, '#f2c14e', 1.0, `+ ${MATH_OPERATORS[extracted].glyph}`);
       this.spawnGlyphBurst(hitPos.x, hitPos.y, '#f2c14e', 8);
+      this.emitLanFx({ kind: 'parry', x: Math.round(hitPos.x), y: Math.round(hitPos.y), color: '#f2c14e' });
+      this.emitLanFx({ kind: 'pop', x: Math.round(hitPos.x), y: Math.round(hitPos.y - 16), text: '弹反', sub: `+ ${MATH_OPERATORS[extracted].glyph}`, color: '#f2c14e', scale: 1.0 });
       this.hitstopTimer = Math.max(this.hitstopTimer, 0.012);
       this.shakeCamera(7);
       return;
@@ -2080,6 +2590,8 @@ export class MathGameManager {
         def.vel.y = -170;
         this.sound.playHit(cappedDmg, true, true);
         this.spawnPopText('破防', hitPos.x, hitPos.y - 14, '#ef4747', 1.0);
+        this.emitLanFx({ kind: 'hit', x: Math.round(hitPos.x), y: Math.round(hitPos.y), color: '#ef4747', dmg: cappedDmg, heavy: true, guardBreak: true, dirX: Math.sign(kbX) });
+        this.emitLanFx({ kind: 'pop', x: Math.round(hitPos.x), y: Math.round(hitPos.y - 14), text: '破防', color: '#ef4747', scale: 1.0 });
         this.hitstopTimer = Math.max(this.hitstopTimer, 0.012);
         this.shakeCamera(9);
         return;
@@ -2090,6 +2602,8 @@ export class MathGameManager {
       def.addEnergy(7);
       this.sound.playBlock();
       this.spawnPopText('挡', hitPos.x, hitPos.y, '#ffffff', 0.86);
+      this.emitLanFx({ kind: 'sfx', name: 'block' });
+      this.emitLanFx({ kind: 'pop', x: Math.round(hitPos.x), y: Math.round(hitPos.y), text: '挡', color: '#ffffff', scale: 0.86 });
       return;
     }
 
@@ -2119,6 +2633,24 @@ export class MathGameManager {
     const popSub = label && finalDmg >= 10 ? `−${finalDmg}` : undefined;
     this.spawnPopText(popMain, hitPos.x, hitPos.y - 14, hitCol, finalDmg >= 16 ? 1.04 : 0.92, popSub);
     this.sound.playHit(finalDmg, finalDmg >= 14, false);
+    this.emitLanFx({
+      kind: 'hit',
+      x: Math.round(hitPos.x),
+      y: Math.round(hitPos.y),
+      color: hitCol,
+      dmg: finalDmg,
+      heavy: finalDmg >= 14,
+      dirX: Math.sign(kbX),
+    });
+    this.emitLanFx({
+      kind: 'pop',
+      x: Math.round(hitPos.x),
+      y: Math.round(hitPos.y - 14),
+      text: popMain,
+      sub: popSub,
+      color: hitCol,
+      scale: finalDmg >= 16 ? 1.04 : 0.92,
+    });
 
     if (def.hp <= 0) {
       if (this.mode === 'sandbox') {
@@ -2156,6 +2688,37 @@ export class MathGameManager {
     winner.action = 'victory';
     this.synth.playEulerChord(true);
     this.triggerSpotlightDim(1.1, winner.pos);
+
+    if (this.lanRole === 'host') {
+      if (winnerIdx === 0) this.lanP1Wins++;
+      else this.lanP2Wins++;
+      const neededWins = Math.ceil(this.lanBestOf / 2);
+      const matchDone = this.lanP1Wins >= neededWins || this.lanP2Wins >= neededWins;
+      this.bannerText = matchDone ? 'Q.E.D. 证毕!!' : `${winner.name} 拿下本局!`;
+      this.bannerSub = `当前比分 ${this.lanP1Wins} : ${this.lanP2Wins} (BO${this.lanBestOf})`;
+      this.emitLanFx({ kind: 'sfx', name: 'chord_big' });
+      this.emitLanSnapshot();
+
+      if (!matchDone) {
+        this.lanNextRoundTimer = 1.45;
+        return;
+      }
+
+      window.setTimeout(() => {
+        if (this.active && this.lanRole === 'host' && this.phase === 'match_over') {
+          this.emitLanFx({
+            kind: 'match_end',
+            winnerIdx,
+            p1Wins: this.lanP1Wins,
+            p2Wins: this.lanP2Wins,
+            bestOf: this.lanBestOf,
+          });
+          this.lanOnMatchEnd?.(winnerIdx, this.lanP1Wins, this.lanP2Wins, this.lanBestOf);
+        }
+      }, 1150);
+      return;
+    }
+
     this.bannerText = winnerIdx === 0 ? 'Q.E.D. 证毕!!' : '求解失败…';
     this.bannerSub = `${winner.name} 赢得本场几何对决！`;
 
@@ -2394,6 +2957,20 @@ export class MathGameManager {
 
   private triggerCutIn(title: string, formula: string, sub: string, color: string, facing: 1 | -1): void {
     this.cutIn = { active: true, age: 0, duration: 0.92, title, formula, sub, color, facing };
+    this.emitLanFx({
+      kind: 'cutin',
+      fighterName: sub,
+      icon: '∑',
+      weaponName: formula,
+      title,
+      formula,
+      sub,
+      color,
+      facing,
+      dimDur: 0.92,
+      fxX: Math.round(facing > 0 ? this.p1.pos.x : this.p2.pos.x),
+      fxY: Math.round(facing > 0 ? this.p1.pos.y : this.p2.pos.y),
+    });
   }
 
   private triggerSpotlightDim(dur: number, pos: Vec2): void {
@@ -2424,6 +3001,7 @@ export class MathGameManager {
       name: f.name,
       isBoss: f.isBoss,
       isVersusP2: this.mode === 'versus' && f.index === 1,
+      isLocalPlayer: this.lanRole === 'guest' ? f.index === 1 : f.index === 0,
       pos: f.pos,
       facing: f.facing,
       school: f.school,
@@ -2449,15 +3027,18 @@ export class MathGameManager {
     this.camera.setViewport(viewW, viewH);
 
     const p1MouseAim = this.input.doesPlayerUseMouseAim(0);
-    const p2MouseAim = this.mode === 'versus' && this.input.doesPlayerUseMouseAim(1);
+    const p2MouseAim = this.mode === 'versus' && this.lanRole === 'none' && this.input.doesPlayerUseMouseAim(1);
     const showAim = (p1MouseAim || p2MouseAim) && this.input.mouseHasMoved && this.phase === 'fighting' && !this.paused;
     const aimWorld = showAim ? this.camera.screenToWorld(this.input.mouseCanvasPos) : null;
 
     const sticks: Array<{ pos: Vec2; angle: number; color: string }> = [];
     if (this.phase === 'fighting' && !this.paused) {
       const s1 = this.input.getPlayerStickAim(0);
-      if (s1.aimAngle !== null) sticks.push({ pos: this.p1.pos, angle: s1.aimAngle, color: this.p1.color });
-      if (this.mode === 'versus') {
+      if (s1.aimAngle !== null) {
+        const localF = this.lanRole === 'guest' ? this.p2 : this.p1;
+        sticks.push({ pos: localF.pos, angle: s1.aimAngle, color: localF.color });
+      }
+      if (this.mode === 'versus' && this.lanRole === 'none') {
         const s2 = this.input.getPlayerStickAim(1);
         if (s2.aimAngle !== null) sticks.push({ pos: this.p2.pos, angle: s2.aimAngle, color: this.p2.color });
       }
@@ -2491,16 +3072,21 @@ export class MathGameManager {
       viewW,
       viewH,
       aimReticleWorld: aimWorld,
-      aimReticleOwner: p1MouseAim ? 0 : 1,
+      aimReticleOwner: this.lanRole === 'guest' ? 1 : p1MouseAim ? 0 : 1,
       stickAimIndicators: sticks,
     });
   }
 
   private emitHud(): void {
-    const combo = detectIdentityCombo(this.p1.school, this.p1.operators);
+    const localF = this.lanRole === 'guest' ? this.p2 : this.p1;
+    const combo = detectIdentityCombo(localF.school, localF.operators);
+    const scoreTag =
+      this.lanRole !== 'none' && this.lanBestOf > 1
+        ? `【局域网 BO${this.lanBestOf} · ${this.lanP1Wins}:${this.lanP2Wins}】 `
+        : '';
     const comboHint = combo
-      ? `恒等式就绪 · 释放重击/大招触发：${IDENTITY_COMBOS[combo].formula}（${IDENTITY_COMBOS[combo].title}）`
-      : '拾取/弹反拆解公式算子：π+i 触发欧拉归零 · d/dx+∫ 触发微积分永动 · ÷0 撕裂黑洞网格';
+      ? `${scoreTag}恒等式就绪 · 释放重击/大招触发：${IDENTITY_COMBOS[combo].formula}（${IDENTITY_COMBOS[combo].title}）`
+      : `${scoreTag}拾取/弹反拆解公式算子：π+i 触发欧拉归零 · d/dx+∫ 触发微积分永动 · ÷0 撕裂黑洞网格`;
 
     const mapF = (f: MathFighter) => {
       const s = MATH_SCHOOLS[f.school];
@@ -2535,7 +3121,7 @@ export class MathGameManager {
       comboP2: this.p1.comboReceived,
       bannerText: this.bannerText,
       bannerSub: this.bannerSub,
-      activeFormulaPreview: buildFormulaPreview(this.p1.school, this.p1.operators),
+      activeFormulaPreview: buildFormulaPreview(localF.school, localF.operators),
       comboHint,
       theme: this.themeId,
       sandboxInfEnergy: this.sandboxInfEnergy,

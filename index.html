@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>草稿纸大乱斗 v0.3.3 | SCRATCHPAD &amp; GEOMETRY BRAWL</title>
+    <title>草稿纸大乱斗 v0.4.0 | SCRATCHPAD &amp; GEOMETRY BRAWL</title>
   </head>
   <body>
     <div id="app">
@@ -16,10 +16,10 @@
             <div class="hero-brand">
               <div class="hero-seal">乱斗</div>
               <div class="hero-text">
-                <div class="hero-kicker">SCRATCHPAD BRAWL · DESK DUEL <span class="ver-badge">v0.3.3</span></div>
+                <div class="hero-kicker">SCRATCHPAD BRAWL · DESK DUEL <span class="ver-badge">v0.4.0</span></div>
                 <h1 class="hero-logo">草稿纸大乱斗</h1>
                 <div class="hero-slash"></div>
-                <p class="hero-tagline">12 大纯正文具 · 全新「几何乱斗」数学公式作战 · 护眼零频闪 · 键鼠/双柄适配</p>
+                <p class="hero-tagline">12 大纯正文具 · 几何乱斗公式作战 · 全新局域网双设备直连对打 · 护眼零频闪</p>
               </div>
             </div>
 
@@ -56,6 +56,15 @@
                 <span class="tn-body">
                   <span class="tn-title">双人同屏 · 课桌对决</span>
                   <span class="tn-sub">支持 键鼠+手柄 / 双人双手柄 / 共用键盘 · 三局两胜自由开战</span>
+                </span>
+                <span class="tn-arrow">→</span>
+              </button>
+
+              <button class="title-nav-btn lan-nav" id="btn-enter-lan">
+                <span class="tn-icon">🌐</span>
+                <span class="tn-body">
+                  <span class="tn-title">局域网联机 · 双设备对打 <span class="lan-new-tag">LAN</span></span>
+                  <span class="tn-sub">免配置自动搜房 · 两台电脑低延迟丝滑直连 · 同时支持草稿纸与几何乱斗</span>
                 </span>
                 <span class="tn-arrow">→</span>
               </button>
@@ -516,7 +525,7 @@
         <div id="buff-overlay" class="overlay hidden">
           <div class="sketch-panel buff-panel">
             <h2 id="buff-title">🃏 第 1 波清场！挑选一张文具强化贴纸</h2>
-            <p class="modal-sub">贴上强化贴纸并翻页迎战下一波涂鸦大军（每次换波回复 20 点生命）</p>
+            <p class="modal-sub">贴上强化贴纸并翻页迎战下一波涂鸦大军（普通波回复 28 生命 · Boss 波后回复 45 生命）</p>
             <div class="buff-cards" id="buff-cards"></div>
           </div>
         </div>
@@ -553,6 +562,7 @@
                 <p>纯黑虚空矢量坐标 · 橙色火柴人 (你) VS 数学公式实体</p>
               </div>
               <div class="geo-top-actions">
+                <button class="geo-btn geo-lan-btn" id="btn-geo-lan">🌐 局域网联机</button>
                 <button class="geo-btn" id="geo-btn-controls">操作设置</button>
                 <button class="geo-btn" id="geo-btn-cosmetics">护眼/音效</button>
                 <button class="geo-btn" id="geo-btn-fullscreen">全屏</button>
@@ -705,6 +715,169 @@
 
           <div class="geo-hud-bottom">
             <div class="geo-key-hint" id="geo-key-hint"></div>
+          </div>
+        </div>
+
+        <!-- ==================== LAN MULTIPLAYER LOBBY & IN-MATCH BAR ==================== -->
+        <div id="lan-live-bar" class="lan-live-bar hidden">
+          <span class="lan-live-dot"></span>
+          <span id="lan-live-role">局域网直连</span>
+          <span id="lan-live-ping" class="lan-ping-chip good">1ms · 极速</span>
+          <button class="lan-live-exit" id="btn-lan-exit-match" type="button">退出对局</button>
+        </div>
+
+        <div id="lan-overlay" class="overlay hidden">
+          <div class="sketch-panel lan-panel">
+            <div class="setup-top-bar">
+              <button class="secondary-btn compact-btn" id="btn-lan-back" type="button">← 返回主界面</button>
+              <div class="setup-mode-heading">
+                <h2>🌐 局域网双设备联机 · 直连大厅</h2>
+                <p>同 Wi-Fi / 路由器免配置自动发现 · TCP_NODELAY 60Hz 低延迟同步 · 双游戏互通</p>
+              </div>
+              <div class="lan-env-pill" id="lan-env-pill">桌面直连引擎</div>
+            </div>
+
+            <div class="lan-status-bar hidden" id="lan-status-bar"></div>
+
+            <!-- View 1: Create Room (Host) OR Discover / Join Room (Guest) -->
+            <div id="lan-connect-view" class="lan-connect-grid">
+              <div class="lan-card">
+                <div class="lan-card-head">
+                  <span class="lan-role-tag host">房主 HOST</span>
+                  <h3>创建局域网房间</h3>
+                </div>
+                <p class="lan-card-desc">由你的电脑主持物理判定（60Hz 权威帧），同一局域网内的另一台设备可自动发现并一键加入。</p>
+                <div class="lan-field">
+                  <label for="lan-nick-input">我的昵称</label>
+                  <input id="lan-nick-input" class="lan-input" type="text" maxlength="14" value="小墨" placeholder="输入昵称" />
+                </div>
+                <div class="lan-field">
+                  <label for="lan-room-name-input">房间名称</label>
+                  <input id="lan-room-name-input" class="lan-input" type="text" maxlength="18" value="课桌联机房" placeholder="给房间起个名字" />
+                </div>
+                <div class="lan-field">
+                  <label>初始对战项目（进房后仍可随时切换）</label>
+                  <div class="pill-row compact-pills">
+                    <button class="pill-btn active" type="button" data-lan-init-mode="scratchpad">✏️ 草稿纸大乱斗</button>
+                    <button class="pill-btn" type="button" data-lan-init-mode="geometry">φ 几何乱斗</button>
+                  </div>
+                </div>
+                <div class="lan-local-ip-box">
+                  <span>本机局域网地址：</span>
+                  <strong id="lan-local-ips-preview">检测中…</strong>
+                </div>
+                <button class="start-btn lan-cta" id="btn-lan-create" type="button">创建房间（等待对手加入）</button>
+              </div>
+
+              <div class="lan-card">
+                <div class="lan-card-head">
+                  <span class="lan-role-tag guest">客机 GUEST</span>
+                  <h3>加入附近房间</h3>
+                  <button class="icon-btn lan-rescan-btn" id="btn-lan-rescan" type="button">🔄 刷新</button>
+                </div>
+                <div class="lan-room-list" id="lan-room-list">
+                  <div class="lan-room-empty">正在扫描局域网内的房间…<br/>若未自动发现，可直接输入房主显示的 IP 地址加入。</div>
+                </div>
+                <div class="lan-manual-join">
+                  <label>手动输入房主 IP 直连</label>
+                  <div class="lan-ip-row">
+                    <input id="lan-ip-input" class="lan-input" type="text" placeholder="例如 192.168.1.8" />
+                    <input id="lan-port-input" class="lan-input lan-port-input" type="number" value="27890" min="1024" max="65535" />
+                    <button class="secondary-btn compact-btn" id="btn-lan-join-ip" type="button">直连加入</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- View 2: Active Connected / Waiting Room & Loadout -->
+            <div id="lan-room-view" class="lan-room-view hidden">
+              <div class="lan-room-strip">
+                <div class="lan-addr-group">
+                  <span class="lan-addr-label" id="lan-room-role-badge">房主</span>
+                  <strong id="lan-room-addr">192.168.1.x:27890</strong>
+                  <button class="icon-btn" id="btn-lan-copy-ip" type="button">📋 复制地址</button>
+                </div>
+                <div class="lan-room-strip-right">
+                  <span class="lan-ping-chip good" id="lan-room-ping">等待连接…</span>
+                  <button class="secondary-btn compact-btn danger" id="btn-lan-leave-room" type="button">断开离开</button>
+                </div>
+              </div>
+
+              <div class="lan-settings-strip" id="lan-settings-strip">
+                <div class="lan-setting-group">
+                  <span>对战模式：</span>
+                  <button class="cat-pill active" type="button" data-lan-game="scratchpad">✏️ 草稿纸大乱斗</button>
+                  <button class="cat-pill" type="button" data-lan-game="geometry">φ 几何乱斗</button>
+                </div>
+                <div class="lan-setting-group">
+                  <span>赛制：</span>
+                  <button class="cat-pill" type="button" data-lan-bo="1">BO1</button>
+                  <button class="cat-pill active" type="button" data-lan-bo="3">BO3</button>
+                  <button class="cat-pill" type="button" data-lan-bo="5">BO5</button>
+                </div>
+                <div class="lan-setting-group" id="lan-sp-stage-group">
+                  <span>地图：</span>
+                  <select id="lan-stage-sel" class="vcb-select"></select>
+                  <select id="lan-theme-sel" class="vcb-select"></select>
+                </div>
+                <div class="lan-setting-group hidden" id="lan-geo-theme-group">
+                  <span>画板：</span>
+                  <select id="lan-geotheme-sel" class="vcb-select">
+                    <option value="chalkboard">■ 纯黑虚空</option>
+                    <option value="blueprint">□ 纯白演算纸</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="lan-vs-banner">
+                <div class="lan-player-card host" id="lan-card-host">
+                  <div class="lpc-top">
+                    <span class="lan-role-tag host">P1 房主</span>
+                    <span class="lpc-ready ready" id="lan-host-ready-badge">已就绪</span>
+                  </div>
+                  <div class="lpc-name" id="lan-host-name">小墨</div>
+                  <div class="lpc-pick" id="lan-host-pick">🧭 尖锋圆规</div>
+                </div>
+                <div class="lan-vs-center">VS</div>
+                <div class="lan-player-card guest" id="lan-card-guest">
+                  <div class="lpc-top">
+                    <span class="lan-role-tag guest">P2 客机</span>
+                    <span class="lpc-ready" id="lan-guest-ready-badge">等待加入…</span>
+                  </div>
+                  <div class="lpc-name" id="lan-guest-name">等待对手连接</div>
+                  <div class="lpc-pick" id="lan-guest-pick">—</div>
+                </div>
+              </div>
+
+              <div class="lan-picker-wrap">
+                <div class="block-label" id="lan-picker-label">选择你的出战文具（双方可自由镜像选同一件！）</div>
+                <div class="lan-picker-grid" id="lan-picker-grid"></div>
+              </div>
+
+              <div class="menu-footer lan-room-footer">
+                <div class="lan-ctrl-row">
+                  <span class="controls-mini" id="lan-ctrl-hint">使用你的单人 P1 键鼠/手柄方案操控</span>
+                  <button class="icon-btn" id="btn-lan-controls" type="button">⌨️/🎮 调按键</button>
+                </div>
+                <div class="lan-action-btns">
+                  <button class="start-btn hidden" id="btn-lan-ready" type="button">✓ 准备就绪</button>
+                  <button class="start-btn hidden" id="btn-lan-start" type="button" disabled>等待客机加入…</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LAN Match Result Modal -->
+        <div id="lan-result-overlay" class="overlay hidden">
+          <div class="sketch-panel modal-panel lan-result-panel">
+            <div class="result-stamp" id="lan-res-badge">胜出!</div>
+            <h2 id="lan-res-title">局域网对决结束</h2>
+            <p class="modal-sub" id="lan-res-sub">比分 2 : 1 (BO3)</p>
+            <div class="modal-actions">
+              <button class="start-btn" id="btn-lan-res-back-room" type="button">回到联机房间再战</button>
+              <button class="secondary-btn danger" id="btn-lan-res-exit" type="button">断开联机返回主界面</button>
+            </div>
           </div>
         </div>
 

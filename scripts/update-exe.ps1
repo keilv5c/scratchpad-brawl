@@ -1,7 +1,7 @@
 ﻿param(
   [switch]$RebuildShell,
-  [string]$Version = "0.3.3",
-  [string]$Notes = "v0.3.3: Synced across BOTH Scratchpad Brawl & Geometry Brawl — double-tap Down (S×2 / ↓×2 / Gamepad Down×2) to drop cleanly through elevated platforms, smart AI platform climbing & dropping, and balanced Heavy charge scaling (+25%~28% over tap with strict per-cast caps)"
+  [string]$Version = "0.4.0",
+  [string]$Notes = "v0.4.0: Full balance overhaul (Arcade Stage 4/5, Roguelike waves/buffs, all 12 weapons & Geometry Trial Stage 4/5) + Native Zero-Stutter 2-Device Windows LAN Multiplayer (TCP_NODELAY + UDP auto-discovery) for BOTH Scratchpad Brawl & Geometry Brawl"
 )
 
 $ErrorActionPreference = "Stop"

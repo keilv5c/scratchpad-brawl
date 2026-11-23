@@ -92,6 +92,8 @@ export class Fighter {
   public attackHitIds = new Set<string>();
   public activeHeavyCastId: string | null = null;
   public activeHeavyCastCap = 0;
+  public activeSuperCastId: string | null = null;
+  public activeSuperCastCap = 0;
   public attackMultiHitStep = 0;
   public comboStep = 0;
   public comboWindowFrames = 0;
@@ -374,6 +376,89 @@ export class Fighter {
           heavy: false,
         });
       }
+    }
+  }
+
+  /**
+   * Visual-only update for LAN Guest interpolation: keeps skeleton animation,
+   * weapon smear trails, scarf cloth physics, and KO ragdoll running at full 60/120fps!
+   */
+  public updateVisualsOnly(
+    dt: number,
+    platforms: PlatformDef[],
+    brokenPlatforms: Set<string>,
+    worldWidth = WORLD_WIDTH
+  ): void {
+    this.animPhase += dt;
+    for (let i = this.smearTrail.length - 1; i >= 0; i--) {
+      this.smearTrail[i].life -= dt;
+      if (this.smearTrail[i].life <= 0) {
+        this.smearTrail.splice(i, 1);
+      }
+    }
+
+    if (this.action === 'ko') {
+      if (this.ragdoll.active) {
+        this.ragdoll.update(platforms, brokenPlatforms, worldWidth, () => {});
+        const rPose = this.ragdoll.toPose();
+        this.scarf.update(rPose.neck, this.facing, 0, this.animPhase);
+        return;
+      }
+    }
+
+    const move = this.getCurrentMove();
+    let attackPhase: 'startup' | 'active' | 'recovery' = 'startup';
+    let attackProgress = 0;
+    if (move && (this.action === 'attack' || this.action === 'super_active')) {
+      const total = Math.max(1, move.startup + move.active + move.recovery);
+      attackProgress = clamp(this.actionFrames / total, 0, 1);
+      if (this.actionFrames < move.startup) attackPhase = 'startup';
+      else if (this.actionFrames < move.startup + move.active) attackPhase = 'active';
+      else attackPhase = 'recovery';
+    }
+
+    const pose = this.skeleton.update(
+      {
+        pos: this.pos,
+        vx: this.vel.x,
+        vy: this.vel.y,
+        facing: this.facing,
+        action: this.action,
+        actionTime: this.actionFrames / 60,
+        animPhase: this.animPhase,
+        weapon: this.weapon,
+        attackKind: this.attackKind,
+        attackProgress,
+        attackPhase,
+        chargeRatio: clamp(this.chargeFrames / this.maxChargeFrames, 0, 1),
+        onGround: this.onGround,
+      },
+      dt
+    );
+
+    this.scarf.update(pose.neck, this.facing, this.vel.x, this.animPhase);
+
+    if (
+      (this.action === 'attack' && attackPhase === 'active') ||
+      this.action === 'super_active'
+    ) {
+      const isHeavy = this.attackKind === 'heavy' || this.attackKind === 'super' || this.attackKind === 'light3';
+      const smearCol =
+        this.weapon === 'tape'
+          ? '#ffffff'
+          : this.weapon === 'highlighter'
+            ? '#f5da22'
+            : this.attackKind === 'super'
+              ? this.scarfColor
+              : this.inkColor;
+      this.smearTrail.push({
+        base: { ...pose.weaponBase },
+        tip: { ...pose.weaponTip },
+        life: isHeavy ? 0.17 : 0.11,
+        maxLife: isHeavy ? 0.17 : 0.11,
+        color: smearCol,
+        heavy: isHeavy,
+      });
     }
   }
 
@@ -915,6 +1000,22 @@ export class Fighter {
     this.invulnFrames = 34;
     this.vel.x = 0;
     this.vel.y = 0;
+    const superCapTable: Record<WeaponId, number> = {
+      compass: 40,
+      tape: 38,
+      ruler: 40,
+      eraser: 42,
+      cutter: 38,
+      pencil: 38,
+      whip: 39,
+      boomerang: 38,
+      scissors: 42,
+      stapler: 38,
+      highlighter: 38,
+      fountain_pen: 42,
+    };
+    this.activeSuperCastId = `${this.uid}_sup_${Math.floor(performance.now() * 10)}_${Math.floor(Math.random() * 1000)}`;
+    this.activeSuperCastCap = Math.round((superCapTable[this.weapon] ?? 40) * this.damageMult);
     sound.playSuperActivate();
     cb.onSuperTrigger(this);
   }

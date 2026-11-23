@@ -24,6 +24,7 @@ internal sealed class UpdateConfig
 internal sealed class MainForm : Form
 {
     private readonly WebView2 _webView;
+    private readonly LanManager _lan;
     private readonly string _baseDir;
     private readonly string _appDir;
     private readonly string _userDataDir;
@@ -37,6 +38,7 @@ internal sealed class MainForm : Form
         _baseDir = AppContext.BaseDirectory;
         _appDir = Path.Combine(_baseDir, "app");
         _userDataDir = Path.Combine(_baseDir, "userdata");
+        _lan = new LanManager(PostJsonToWebView);
 
         Text = BuildWindowTitle();
         Width = 1300;
@@ -60,6 +62,23 @@ internal sealed class MainForm : Form
         Controls.Add(_webView);
 
         Load += async (_, _) => await InitWebViewAsync();
+        FormClosed += (_, _) => _lan.Dispose();
+    }
+
+    private void PostJsonToWebView(string json)
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        try
+        {
+            BeginInvoke(() =>
+            {
+                if (!IsDisposed)
+                {
+                    _webView.CoreWebView2?.PostWebMessageAsJson(json);
+                }
+            });
+        }
+        catch { }
     }
 
     private string ReadCurrentVersion()
@@ -115,14 +134,30 @@ internal sealed class MainForm : Form
             CoreWebView2HostResourceAccessKind.Allow
         );
 
-        // Allow in-game UI buttons ("⛶ 全屏") to toggle native borderless fullscreen!
+        // Bridge native fullscreen toggle + built-in zero-latency LAN multiplayer commands!
         core.WebMessageReceived += (_, e) =>
         {
-            var msg = e.TryGetWebMessageAsString();
-            if (msg == "toggle-fullscreen")
+            try
             {
-                BeginInvoke(ToggleFullscreen);
+                var raw = e.WebMessageAsJson;
+                if (string.IsNullOrWhiteSpace(raw)) return;
+                if (raw == "\"toggle-fullscreen\"")
+                {
+                    BeginInvoke(ToggleFullscreen);
+                    return;
+                }
+                using var doc = JsonDocument.Parse(raw);
+                if (doc.RootElement.ValueKind == JsonValueKind.String && doc.RootElement.GetString() == "toggle-fullscreen")
+                {
+                    BeginInvoke(ToggleFullscreen);
+                    return;
+                }
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    _lan.HandleWebMessage(doc.RootElement);
+                }
             }
+            catch { }
         };
 
         // Allow native keyboard shortcuts even while WebView2 has focus

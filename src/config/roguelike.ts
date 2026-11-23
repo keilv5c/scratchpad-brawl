@@ -21,7 +21,7 @@ export const ROGUELIKE_BUFFS: Record<RoguelikeBuffId, RoguelikeBuffDef> = {
     id: 'parry_vamp',
     name: '弹反回血',
     tag: '弹反流',
-    desc: '完美弹反回复 18 点生命，并释放震退全场敌人的金墨冲击波！',
+    desc: '完美弹反回复 16 点生命，并释放震退全场敌人的金墨冲击波！',
     accent: '#d48c17',
     icon: '🛡️',
   },
@@ -61,7 +61,7 @@ export const ROGUELIKE_BUFFS: Record<RoguelikeBuffId, RoguelikeBuffDef> = {
     id: 'ink_fountain',
     name: '灵感涌泉',
     tag: '大招流',
-    desc: '攻击、弹反与残影闪避获得的灵感值提升 65%，高频狂放文具大招！',
+    desc: '攻击、弹反与残影闪避获得的灵感值提升 50%，高频狂放文具大招！',
     accent: '#8228b5',
     icon: '🌊',
   },
@@ -69,7 +69,7 @@ export const ROGUELIKE_BUFFS: Record<RoguelikeBuffId, RoguelikeBuffDef> = {
     id: 'ink_lightning',
     name: '塑料尺静电雷',
     tag: '重击流',
-    desc: '蓄力重击命中时，摩擦静电召唤一道手绘落雷追加 14 点伤害！',
+    desc: '蓄力重击命中时，摩擦静电召唤一道手绘落雷追加 12 点独立雷击伤害！',
     accent: '#d99a1e',
     icon: '🌩️',
   },
@@ -133,8 +133,8 @@ const MINION_WEAPONS: WeaponId[] = [
 export function buildRoguelikeWave(wave: number): RoguelikeWaveSpec {
   const loc = WAVE_STAGES[(wave - 1) % WAVE_STAGES.length];
   const isBossWave = wave % 3 === 0;
-  const diff = Math.min(0.92, 0.3 + wave * 0.08);
-  const hpScale = 1 + (wave - 1) * 0.14;
+  const diff = Math.min(0.76, 0.28 + wave * 0.06);
+  const hpScale = 1 + (wave - 1) * 0.11;
 
   if (isBossWave) {
     const bossWeapon: WeaponId = wave % 6 === 0 ? 'eraser' : 'fountain_pen';
@@ -149,11 +149,11 @@ export function buildRoguelikeWave(wave: number): RoguelikeWaveSpec {
       theme: loc.theme,
       inkColor: '#0c0d12',
       scarfColor: '#d99a1e',
-      maxHp: Math.round(130 * hpScale),
-      difficulty: Math.min(0.95, diff + 0.12),
-      aggression: 0.82,
-      parrySkill: Math.min(0.62, 0.28 + wave * 0.05),
-      dodgeSkill: 0.55,
+      maxHp: Math.round(122 * hpScale),
+      difficulty: Math.min(0.8, diff + 0.08),
+      aggression: 0.72,
+      parrySkill: Math.min(0.38, 0.2 + wave * 0.03),
+      dodgeSkill: 0.4,
       isBoss: true,
     };
     const guard: ArcadeMaster = {
@@ -167,11 +167,11 @@ export function buildRoguelikeWave(wave: number): RoguelikeWaveSpec {
       theme: loc.theme,
       inkColor: '#2a3954',
       scarfColor: '#3a7ce0',
-      maxHp: Math.round(62 * hpScale),
-      difficulty: Math.max(0.32, diff - 0.12),
-      aggression: 0.65,
-      parrySkill: 0.22,
-      dodgeSkill: 0.25,
+      maxHp: Math.round(56 * hpScale),
+      difficulty: Math.max(0.3, diff - 0.12),
+      aggression: 0.58,
+      parrySkill: 0.16,
+      dodgeSkill: 0.2,
     };
     return {
       wave,
@@ -205,11 +205,11 @@ export function buildRoguelikeWave(wave: number): RoguelikeWaveSpec {
       theme: loc.theme,
       inkColor: ink,
       scarfColor: scarf,
-      maxHp: Math.round((56 + i * 10) * hpScale),
-      difficulty: Math.min(0.84, diff - (count >= 3 ? 0.12 : 0.04) + i * 0.05),
-      aggression: 0.55 + i * 0.1,
-      parrySkill: Math.min(0.45, 0.12 + wave * 0.04),
-      dodgeSkill: Math.min(0.48, 0.16 + wave * 0.04),
+      maxHp: Math.round((52 + i * 8) * hpScale),
+      difficulty: Math.min(0.68, diff - (count >= 3 ? 0.12 : 0.05) + i * 0.04),
+      aggression: 0.5 + i * 0.08,
+      parrySkill: Math.min(0.22, 0.08 + wave * 0.025),
+      dodgeSkill: Math.min(0.28, 0.12 + wave * 0.03),
     });
   }
 

@@ -71,6 +71,7 @@ import {
   MathSchoolId,
   MathThemeId,
 } from './geometry/mathTypes';
+import { LanLobbyController } from './net/lanLobbyController';
 
 // Selected setup state
 let selectedMode: GameMode = 'arcade';
@@ -258,6 +259,9 @@ function showTitleScreen(): void {
   jukeboxOverlay.classList.add('hidden');
   buffOverlay.classList.add('hidden');
   resultOverlay.classList.add('hidden');
+  document.getElementById('lan-overlay')?.classList.add('hidden');
+  document.getElementById('lan-result-overlay')?.classList.add('hidden');
+  document.getElementById('lan-live-bar')?.classList.add('hidden');
   titleScreen.classList.remove('hidden');
   game.returnToMenu();
 }
@@ -469,7 +473,7 @@ function updateHud(hud: HudSnapshot): void {
       ? 'train'
       : hud.mode === 'roguelike'
         ? `rogue:${hud.roguelikeAliveEnemies}`
-        : `dots:${hud.p1Wins}:${hud.p2Wins}`;
+        : `dots:${hud.p1Wins}:${hud.p2Wins}:${hud.maxRounds}`;
   if (hudCache.winsKey !== winsKey) {
     hudCache.winsKey = winsKey;
     if (hud.mode === 'training') {
@@ -479,8 +483,9 @@ function updateHud(hud: HudSnapshot): void {
       p1WinsEl.innerHTML = '';
       p2WinsEl.innerHTML = `<span class="weapon-pill">余敌 ${hud.roguelikeAliveEnemies}</span>`;
     } else {
-      renderWinDots(p1WinsEl, hud.p1Wins);
-      renderWinDots(p2WinsEl, hud.p2Wins);
+      const needed = Math.max(1, Math.ceil((hud.maxRounds || 3) / 2));
+      renderWinDots(p1WinsEl, hud.p1Wins, needed);
+      renderWinDots(p2WinsEl, hud.p2Wins, needed);
     }
   }
 
@@ -2266,6 +2271,45 @@ document.getElementById('btn-geo-rematch')!.addEventListener('click', () => {
 });
 document.getElementById('btn-geo-to-hub')!.addEventListener('click', openGeometryHub);
 document.getElementById('btn-geo-to-title')!.addEventListener('click', showTitleScreen);
+
+// ==================== LAN MULTIPLAYER LOBBY CONTROLLER ====================
+const lanLobby = new LanLobbyController({
+  game,
+  mathGame,
+  onReturnToTitle: () => showTitleScreen(),
+  onOpenControls: () => openControlsModal('kb'),
+  onApplySingleP1Device: () => {
+    const pads = game.input.connectedGamepads;
+    const p1Dev: PlayerInputDevice = storedGamepad.singleP1Device;
+    game.setPlayerDevices(p1Dev, 'kb_p2');
+    return buildDeviceKeyHintSummary('P1', p1Dev, activeProfile, activeGpProfile, pads.length > 0);
+  },
+  onHideAllMainViews: () => {
+    titleScreen.classList.add('hidden');
+    setupOverlay.classList.add('hidden');
+    hudEl.classList.add('hidden');
+    geoSetupOverlay.classList.add('hidden');
+    geoHudEl.classList.add('hidden');
+    geoResultOverlay.classList.add('hidden');
+    pauseOverlay.classList.add('hidden');
+    resultOverlay.classList.add('hidden');
+    buffOverlay.classList.add('hidden');
+  },
+  hudEl,
+  geoHudEl,
+  trainingBarEl: trainingBar,
+  geoSandboxBarEl: geoSandboxBar,
+  p1KeyHintEl: p1KeyHint,
+  p2KeyHintEl: p2KeyHint,
+  geoKeyHintEl: geoKeyHint,
+});
+
+document.getElementById('btn-enter-lan')!.addEventListener('click', () => {
+  lanLobby.open('scratchpad');
+});
+document.getElementById('btn-geo-lan')!.addEventListener('click', () => {
+  lanLobby.open('geometry');
+});
 
 // Init UI
 buildSetupOptions();

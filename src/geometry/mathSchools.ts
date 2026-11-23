@@ -299,8 +299,8 @@ export const MATH_TRIAL_MASTERS: MathTrialMaster[] = [
     school: 'calculus',
     color: '#ffffff',
     secondaryColor: '#ef5350',
-    maxHp: 190,
-    difficulty: 0.78,
+    maxHp: 172,
+    difficulty: 0.68,
   },
   {
     stageIndex: 4,
@@ -310,9 +310,9 @@ export const MATH_TRIAL_MASTERS: MathTrialMaster[] = [
     school: 'euler',
     color: '#ffffff',
     secondaryColor: '#f2c14e',
-    maxHp: 240,
+    maxHp: 205,
     isBoss: true,
-    difficulty: 0.88,
+    difficulty: 0.75,
   },
 ];
 

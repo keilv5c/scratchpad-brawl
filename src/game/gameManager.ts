@@ -3,6 +3,7 @@ import {
   CareerStats,
   GameMode,
   HudSnapshot,
+  InputState,
   MatchStats,
   MoveProjectileSpawn,
   PaperTheme,
@@ -30,9 +31,9 @@ import {
   scoreToStyleRank,
 } from '../config/cosmetics';
 import { buildRoguelikeWave, rollThreeBuffChoices } from '../config/roguelike';
-import { KeyboardInputManager, decayInputBuffers } from '../engine/input';
+import { KeyboardInputManager, createEmptyInput, decayInputBuffers } from '../engine/input';
 import { Camera } from '../engine/camera';
-import { clamp, rectsOverlap } from '../engine/math';
+import { clamp, lerp, rectsOverlap } from '../engine/math';
 import { Fighter } from '../combat/fighter';
 import { Projectile, createProjectile, getProjectileHitbox } from '../combat/projectiles';
 import { ArenaObjectManager } from '../combat/arenaObjects';
@@ -42,6 +43,21 @@ import { GameRenderer, buildKoComicSnapshot } from '../render/gameRenderer';
 import { SoundEngine } from '../audio/soundEngine';
 import { BgmEngine } from '../audio/bgmEngine';
 import { AiBrain } from '../ai/brain';
+import {
+  LanBestOf,
+  LanFxEventPayload,
+  LanInputPacket,
+  LanLobbyState,
+  LanPeerMessage,
+  LanRole,
+  LanScratchpadSnapshot,
+  LanSpFighterState,
+} from '../net/lanTypes';
+import {
+  GuestInputEncoder,
+  HostRemoteInputDecoder,
+  SnapshotInterpolator,
+} from '../net/lanClient';
 
 export interface MatchConfig {
   mode: GameMode;
@@ -156,6 +172,18 @@ export class GameManager {
   public externalGameplayActive?: () => boolean;
   public onExternalPauseToggle?: () => void;
 
+  // LAN Multiplayer (Host-authoritative 60Hz snapshots + Guest adaptive smooth interpolation)
+  public lanRole: LanRole = 'none';
+  private lanBestOf: LanBestOf = 3;
+  private lanRemoteInput: InputState = createEmptyInput();
+  private lanRemoteDecoder = new HostRemoteInputDecoder();
+  private lanGuestEncoder = new GuestInputEncoder();
+  private lanSnapSeq = 0;
+  private lanInterp = new SnapshotInterpolator<LanScratchpadSnapshot>();
+  private lanOnSend: ((msg: LanPeerMessage, droppable?: boolean) => void) | null = null;
+  private lanOnMatchEnd: ((winnerIdx: 0 | 1, p1Wins: number, p2Wins: number, bestOf: LanBestOf) => void) | null = null;
+  private lanGuestPrevRound = 1;
+
   constructor(canvas: HTMLCanvasElement, uiCallbacks: GameUiCallbacks) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
@@ -188,6 +216,7 @@ export class GameManager {
         this.onExternalPauseToggle?.();
         return;
       }
+      if (this.lanRole !== 'none') return; // Never freeze live LAN peer match on Esc!
       if (this.phase === 'fighting' || this.phase === 'intro') {
         this.setPaused(!this.paused);
       }
@@ -361,6 +390,7 @@ export class GameManager {
   }
 
   public returnToMenu(): void {
+    this.lanRole = 'none';
     this.phase = 'menu';
     this.paused = false;
     this.input.clearAll();
@@ -413,10 +443,10 @@ export class GameManager {
 
   private syncP1Modifiers(): void {
     const inHighlighter = this.arenaObjects.isInHighlighterZone(this.p1.pos);
-    this.p1.moveSpeedMult = (this.hasBuff('sketch_haste') ? 1.18 : 1.0) * (inHighlighter ? 1.24 : 1.0);
+    this.p1.moveSpeedMult = (this.hasBuff('sketch_haste') ? 1.18 : 1.0) * (inHighlighter ? 1.2 : 1.0);
     this.p1.dashCooldownMult = this.hasBuff('sketch_haste') ? 0.65 : 1.0;
-    this.p1.damageMult = (this.hasBuff('heavy_ink') ? 1.28 : 1.0) * (inHighlighter ? 1.22 : 1.0);
-    this.p1.inkGainMult = this.hasBuff('ink_fountain') ? 1.65 : 1.0;
+    this.p1.damageMult = (this.hasBuff('heavy_ink') ? 1.28 : 1.0) * (inHighlighter ? 1.15 : 1.0);
+    this.p1.inkGainMult = this.hasBuff('ink_fountain') ? 1.5 : 1.0;
   }
 
   public pickRoguelikeBuff(buffId: RoguelikeBuffId): void {
@@ -424,20 +454,494 @@ export class GameManager {
     this.sound.playStickerPick();
     this.roguelikeBuffs.push(buffId);
 
+    const clearedBossWave = this.roguelikeWave % 3 === 0;
     if (buffId === 'thick_paper') {
       this.p1.maxHp += 40;
-      this.p1.hp = Math.min(this.p1.maxHp, this.p1.hp + 45);
+      this.p1.hp = Math.min(this.p1.maxHp, this.p1.hp + (clearedBossWave ? 60 : 45));
       this.p1.guardMeter = 100;
     } else {
-      // Small breather heal between waves
-      this.p1.hp = Math.min(this.p1.maxHp, this.p1.hp + 20);
+      // Generous breather heal between waves (+28 normal, +45 after Boss waves)
+      this.p1.hp = Math.min(this.p1.maxHp, this.p1.hp + (clearedBossWave ? 45 : 28));
     }
 
     this.roguelikeWave++;
     this.startRoguelikeWave(true);
   }
 
+  public setLanTransport(
+    onSend: (msg: LanPeerMessage, droppable?: boolean) => void,
+    onMatchEnd: (winnerIdx: 0 | 1, p1Wins: number, p2Wins: number, bestOf: LanBestOf) => void
+  ): void {
+    this.lanOnSend = onSend;
+    this.lanOnMatchEnd = onMatchEnd;
+  }
+
+  public stopLanMatch(): void {
+    this.lanRole = 'none';
+    this.lanRemoteDecoder.reset();
+    this.lanGuestEncoder.reset();
+    this.lanInterp.reset();
+    this.lanRemoteInput = createEmptyInput();
+  }
+
+  public startLanMatch(role: 'host' | 'guest', lobby: LanLobbyState): void {
+    this.sound.unlock();
+    if (this.bgm.isEnabled()) this.bgm.start();
+
+    this.lanRole = role;
+    this.lanBestOf = lobby.bestOf;
+    this.lanRemoteDecoder.reset();
+    this.lanGuestEncoder.reset();
+    this.lanInterp.reset();
+    this.lanRemoteInput = createEmptyInput();
+    this.lanSnapSeq = 0;
+    this.lanGuestPrevRound = 1;
+
+    this.mode = 'versus';
+    this.paused = false;
+    this.koSnapshotDataUrl = null;
+    this.styleScore = 0;
+    this.styleRank = 'none';
+    this.highestStyleRank = 'none';
+    this.bgm.setStylishBoost(false);
+    this.delayedEvents = [];
+    this.projectiles = [];
+    this.round = 1;
+    this.p1Wins = 0;
+    this.p2Wins = 0;
+    this.winnerIndex = -1;
+    this.stats = {
+      p1DamageDealt: 0,
+      p2DamageDealt: 0,
+      p1Parries: 0,
+      p2Parries: 0,
+      p1MaxCombo: 0,
+      p2MaxCombo: 0,
+      clashes: 0,
+      durationSec: 0,
+      highestStyleRank: 'none',
+    };
+
+    this.stage = STAGES[lobby.stageId] ?? STAGES.notebook;
+    this.theme = PAPER_THEMES[lobby.themeId] ?? PAPER_THEMES.grid;
+    this.paper.setThemeAndStage(this.theme, this.stage, true);
+    this.camera.setWorldSize(this.stage.worldWidth, this.stage.worldHeight);
+    this.bgm.suggestStageTrack(this.stage.defaultTrack);
+
+    const skin = INK_SKINS[this.avSettings.skinId] ?? INK_SKINS.classic;
+    const hostLabel = role === 'host' ? `${lobby.hostName} (你)` : `${lobby.hostName} (房主)`;
+    const guestLabel = role === 'guest' ? `${lobby.guestName} (你)` : `${lobby.guestName} (客机)`;
+
+    this.p1 = new Fighter(
+      0,
+      hostLabel,
+      WEAPONS[lobby.hostWeapon].name,
+      { ...this.stage.spawnP1 },
+      1,
+      lobby.hostWeapon,
+      skin.inkColor,
+      skin.scarfColor,
+      125
+    );
+    this.p1.rainbowSkin = !!skin.rainbow;
+
+    const f2 = new Fighter(
+      1,
+      guestLabel,
+      WEAPONS[lobby.guestWeapon].name,
+      { ...this.stage.spawnP2 },
+      -1,
+      lobby.guestWeapon,
+      this.theme.p2Ink,
+      this.theme.p2Scarf,
+      125
+    );
+    this.enemies = [f2];
+    this.enemyAis = [new AiBrain()];
+
+    if (role === 'host') {
+      this.startRound(false);
+      this.emitLanSnapshot();
+    } else {
+      this.paper.clearStains();
+      this.input.clearAll();
+      this.fx.reset();
+      this.camera.reset();
+      this.sound.setSlowMoFilter(false);
+      this.arenaObjects.reset(this.stage.crateSpawns, this.stage.platforms);
+      this.phase = 'intro';
+      this.roundTimer = 99;
+      this.bannerText = '第 1 回合';
+      this.bannerSub = '局域网同步就绪…';
+      this.bannerStamp = false;
+      this.bgm.setIntensity('fight');
+    }
+  }
+
+  public receiveLanInput(pkt: LanInputPacket): void {
+    if (this.lanRole !== 'host') return;
+    this.lanRemoteDecoder.applyPacket(pkt, this.lanRemoteInput);
+  }
+
+  public receiveLanSnapshot(snap: LanScratchpadSnapshot): void {
+    if (this.lanRole !== 'guest') return;
+    this.lanInterp.push(snap, performance.now());
+  }
+
+  public receiveLanFx(ev: LanFxEventPayload): void {
+    if (this.lanRole !== 'guest') return;
+    switch (ev.kind) {
+      case 'pop':
+        this.fx.spawnPopText(ev.text, { x: ev.x, y: ev.y }, ev.color, ev.scale ?? 1.0);
+        break;
+      case 'hit':
+        this.sound.playHit(ev.dmg, !!ev.heavy, !!ev.guardBreak);
+        this.fx.spawnInkBurst({ x: ev.x, y: ev.y }, ev.color, ev.heavy ? 18 : 9, ev.dirX ?? 0, ev.dirY ?? -0.25, ev.heavy ? 420 : 280);
+        this.fx.spawnRing({ x: ev.x, y: ev.y }, ev.heavy ? 92 : 54, ev.color, ev.heavy ? 4.2 : 2.6);
+        this.paper.addInkSplatter({ x: ev.x, y: ev.y }, ev.color, ev.heavy ? 20 : 11, ev.dirX ?? 0, ev.dirY ?? 0);
+        if (ev.guardBreak) {
+          this.fx.spawnPaperShards({ x: ev.x, y: ev.y }, ev.color, 14);
+          this.fx.triggerImpactFrame(4, { x: ev.x, y: ev.y }, 0.25, 'parry');
+          this.shakeCamera(14, ev.dirX ?? 0, 0);
+        } else if (ev.heavy) {
+          this.fx.triggerImpactFrame(0, { x: ev.x, y: ev.y }, 0.18, 'normal');
+          this.shakeCamera(12, ev.dirX ?? 0, ev.dirY ?? 0);
+        } else {
+          this.shakeCamera(5, ev.dirX ?? 0, 0);
+        }
+        break;
+      case 'parry':
+        this.sound.playParry();
+        this.fx.spawnParrySparks({ x: ev.x, y: ev.y }, ev.color, 24);
+        this.fx.triggerImpactFrame(4, { x: ev.x, y: ev.y }, 0.24, 'parry');
+        this.shakeCamera(10);
+        break;
+      case 'clash':
+        this.sound.playClash();
+        this.fx.spawnParrySparks({ x: ev.x, y: ev.y }, '#f7ba2a', 26);
+        this.fx.triggerImpactFrame(0, { x: ev.x, y: ev.y }, 0.22, 'normal');
+        this.shakeCamera(12);
+        break;
+      case 'cutin':
+        this.fx.triggerSuperShowcase(
+          { x: ev.fxX ?? this.p1.pos.x, y: ev.fxY ?? this.p1.pos.y },
+          ev.fighterName,
+          ev.icon,
+          ev.weaponName,
+          ev.title,
+          ev.color,
+          ev.facing
+        );
+        this.sound.playPaperTear();
+        break;
+      case 'sfx':
+        if (ev.name === 'block') this.sound.playBlock();
+        else if (ev.name === 'dodge') this.sound.playPerfectDodge();
+        else if (ev.name === 'stamp') {
+          this.sound.playStamp();
+          this.shakeCamera(9);
+        } else if (ev.name === 'tear') this.sound.playPaperTear();
+        else if (ev.name === 'page_flip') {
+          this.paper.triggerPageFlip(this.canvas);
+          this.sound.playPageFlip();
+        }
+        break;
+      case 'shake':
+        this.shakeCamera(ev.mag, ev.dx ?? 0, ev.dy ?? 0);
+        break;
+      case 'burst':
+        this.fx.spawnInkBurst({ x: ev.x, y: ev.y }, ev.color, ev.count, 0, -0.4, 380);
+        break;
+      case 'match_end':
+        this.phase = 'match_over';
+        this.winnerIndex = ev.winnerIdx;
+        this.p1Wins = ev.p1Wins;
+        this.p2Wins = ev.p2Wins;
+        this.lanOnMatchEnd?.(ev.winnerIdx, ev.p1Wins, ev.p2Wins, ev.bestOf);
+        break;
+    }
+  }
+
+  private emitLanFx(ev: LanFxEventPayload): void {
+    if (this.lanRole !== 'host' || !this.lanOnSend) return;
+    this.lanOnSend({ t: 'fx', mode: 'scratchpad', ev }, false);
+  }
+
+  private packSpFighter(f: Fighter): LanSpFighterState {
+    return {
+      x: Math.round(f.pos.x * 10) / 10,
+      y: Math.round(f.pos.y * 10) / 10,
+      vx: Math.round(f.vel.x),
+      vy: Math.round(f.vel.y),
+      fc: f.facing,
+      act: f.action,
+      af: f.actionFrames,
+      ak: f.attackKind,
+      hp: Math.round(f.hp * 10) / 10,
+      mhp: f.maxHp,
+      dhp: Math.round(f.delayedHp * 10) / 10,
+      ink: Math.round(f.ink * 10) / 10,
+      gm: Math.round(f.guardMeter),
+      ch: f.chargeFrames,
+      hf: f.hurtFlashFrames,
+      pw: f.parryWindowFrames,
+      wep: f.weapon,
+      cs: f.comboReceived,
+      onG: f.onGround,
+      cr: Math.round(f.lastChargeRatio * 100) / 100,
+    };
+  }
+
+  private emitLanSnapshot(): void {
+    if (this.lanRole !== 'host' || !this.lanOnSend || !this.enemies[0]) return;
+    const phaseMap =
+      this.phase === 'intro' || this.phase === 'fighting' || this.phase === 'round_over' || this.phase === 'match_over'
+        ? this.phase
+        : 'fighting';
+    const snap: LanScratchpadSnapshot = {
+      t: 'sp_snap',
+      seq: ++this.lanSnapSeq,
+      ts: Math.round(performance.now()),
+      phase: phaseMap,
+      round: this.round,
+      maxRounds: this.lanBestOf,
+      p1Wins: this.p1Wins,
+      p2Wins: this.p2Wins,
+      timer: Math.round(this.roundTimer * 10) / 10,
+      bannerText: this.bannerText,
+      bannerSub: this.bannerSub,
+      bannerStamp: this.bannerStamp,
+      styleScore: Math.round(this.styleScore),
+      styleRank: this.styleRank,
+      f: [this.packSpFighter(this.p1), this.packSpFighter(this.enemies[0])],
+      pr: this.projectiles.map((p) => ({
+        id: p.id,
+        oi: p.ownerIndex,
+        k: p.kind,
+        x: Math.round(p.pos.x * 10) / 10,
+        y: Math.round(p.pos.y * 10) / 10,
+        vx: Math.round(p.vel.x),
+        vy: Math.round(p.vel.y),
+        ang: Math.round(p.angle * 100) / 100,
+        fc: p.facing,
+        r: p.radius,
+        w: p.width,
+        h: p.height,
+        col: p.color,
+        acc: p.accent,
+        life: Math.round(p.life * 100) / 100,
+        ml: p.maxLife,
+        rot: Math.round(p.rotation * 100) / 100,
+        tt: p.telegraphTime !== undefined ? Math.round(p.telegraphTime * 100) / 100 : undefined,
+        age: Math.round(p.age * 100) / 100,
+      })),
+      pl: this.stage.platforms
+        .filter((p) => p.origami || p.elevator)
+        .map((p) => ({ id: p.id, x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })),
+      br: Array.from(this.arenaObjects.getBrokenPlatformIds()),
+      pk: this.arenaObjects.pickups.map((pk) => ({
+        id: pk.id,
+        x: Math.round(pk.pos.x),
+        y: Math.round(pk.pos.y),
+        wep: pk.weapon,
+        life: Math.round(pk.life * 10) / 10,
+      })),
+      cr: this.arenaObjects.crates
+        .filter((c) => !c.broken)
+        .map((c) => ({ id: c.id, x: Math.round(c.pos.x), y: Math.round(c.pos.y), hp: Math.round(c.hp) })),
+      hz: this.arenaObjects.highlighterZone.active
+        ? {
+            active: true,
+            x: Math.round(this.arenaObjects.highlighterZone.x),
+            y: Math.round(this.arenaObjects.highlighterZone.y),
+            w: Math.round(this.arenaObjects.highlighterZone.w),
+            color: this.arenaObjects.highlighterZone.color,
+            life: Math.round(this.arenaObjects.highlighterZone.life * 10) / 10,
+            maxLife: this.arenaObjects.highlighterZone.maxLife,
+          }
+        : null,
+    };
+    this.lanOnSend(snap, true);
+  }
+
+  private applyLanFighterState(f: Fighter, prev: LanSpFighterState, next: LanSpFighterState, alpha: number): void {
+    const dist = Math.hypot(next.x - prev.x, next.y - prev.y);
+    if (dist > 260) {
+      f.pos.x = next.x;
+      f.pos.y = next.y;
+    } else {
+      f.pos.x = lerp(prev.x, next.x, alpha);
+      f.pos.y = lerp(prev.y, next.y, alpha);
+    }
+    const wasKo = f.action === 'ko';
+    f.vel.x = lerp(prev.vx, next.vx, alpha);
+    f.vel.y = lerp(prev.vy, next.vy, alpha);
+    f.facing = next.fc;
+    f.action = next.act;
+    f.actionFrames = next.af;
+    f.attackKind = next.ak;
+    f.hp = next.hp;
+    f.maxHp = next.mhp;
+    f.delayedHp = next.dhp;
+    f.ink = next.ink;
+    f.guardMeter = next.gm;
+    f.chargeFrames = next.ch;
+    f.hurtFlashFrames = next.hf;
+    f.parryWindowFrames = next.pw;
+    f.weapon = next.wep;
+    f.comboReceived = next.cs;
+    f.onGround = next.onG;
+    f.lastChargeRatio = next.cr;
+
+    if (!wasKo && next.act === 'ko') {
+      f.triggerKO(next.vx || -next.fc * 360, Math.min(-300, next.vy || -340));
+    } else if (wasKo && next.act !== 'ko') {
+      f.ragdoll.active = false;
+    }
+  }
+
+  private tickLanGuest(realDt: number): void {
+    const guestFighter = this.enemies[0];
+    if (!guestFighter) return;
+
+    // 1. Compute Guest local 360-degree aim relative to Guest's own fighter (P2) & transmit input immediately!
+    const canControl = this.phase === 'fighting';
+    const stick = this.input.getPlayerStickAim(0);
+    if (canControl && stick.aimAngle !== null) {
+      this.input.p1.aimDir = stick.aimDir;
+      this.input.p1.aimAngle = stick.aimAngle;
+    } else if (canControl && this.input.doesPlayerUseMouseAim(0) && this.input.mouseHasMoved) {
+      const mw = this.camera.screenToWorld(this.input.mouseCanvasPos);
+      const dxMouse = mw.x - guestFighter.pos.x;
+      const dyMouse = mw.y - (guestFighter.pos.y - 46);
+      if (Math.abs(dxMouse) > 6) this.input.p1.aimDir = dxMouse > 0 ? 1 : -1;
+      this.input.p1.aimAngle = Math.atan2(dyMouse, dxMouse);
+    } else {
+      this.input.p1.aimDir = 0;
+      this.input.p1.aimAngle = null;
+    }
+
+    const pkt = this.lanGuestEncoder.consumeAndEncode(this.input.p1, performance.now());
+    if (pkt && this.lanOnSend) {
+      this.lanOnSend(pkt, false);
+    }
+
+    // 2. Sample adaptive low-latency snapshot buffer & smoothly interpolate!
+    const sample = this.lanInterp.sample(performance.now());
+    if (sample) {
+      const { prev, next, alpha } = sample;
+      if (next.round !== this.lanGuestPrevRound) {
+        this.lanGuestPrevRound = next.round;
+        this.paper.triggerPageFlip(this.canvas);
+        this.sound.playPageFlip();
+      }
+      this.phase = next.phase;
+      this.round = next.round;
+      this.lanBestOf = (next.maxRounds === 1 || next.maxRounds === 5 ? next.maxRounds : 3) as LanBestOf;
+      this.p1Wins = next.p1Wins;
+      this.p2Wins = next.p2Wins;
+      this.roundTimer = next.timer;
+      this.bannerText = next.bannerText;
+      this.bannerSub = next.bannerSub;
+      this.bannerStamp = next.bannerStamp;
+      this.styleScore = next.styleScore;
+      this.styleRank = next.styleRank;
+
+      this.applyLanFighterState(this.p1, prev.f[0], next.f[0], alpha);
+      this.applyLanFighterState(guestFighter, prev.f[1], next.f[1], alpha);
+
+      // Dynamic moving platforms (origami planes & elevators)
+      const prevPlatMap = new Map(prev.pl.map((p) => [p.id, p]));
+      for (const np of next.pl) {
+        const targetPlat = this.stage.platforms.find((p) => p.id === np.id);
+        if (targetPlat) {
+          const pp = prevPlatMap.get(np.id) ?? np;
+          targetPlat.x = lerp(pp.x, np.x, alpha);
+          targetPlat.y = lerp(pp.y, np.y, alpha);
+        }
+      }
+
+      // Breakable bridges
+      const brokenSet = new Set(next.br);
+      for (const [id, st] of this.arenaObjects.bridges.entries()) {
+        st.broken = brokenSet.has(id);
+        st.redrawProgress = st.broken ? 0.35 : 1;
+      }
+
+      // Crates
+      const liveCrates = new Map(next.cr.map((c) => [c.id, c]));
+      for (const c of this.arenaObjects.crates) {
+        const nc = liveCrates.get(c.id);
+        if (!nc) {
+          c.broken = true;
+          c.hp = 0;
+        } else {
+          c.broken = false;
+          c.hp = nc.hp;
+        }
+      }
+
+      // Weapon pickups
+      this.arenaObjects.pickups = next.pk.map((pk) => ({
+        id: pk.id,
+        weapon: pk.wep,
+        pos: { x: pk.x, y: pk.y },
+        vy: 0,
+        life: pk.life,
+        sketchProgress: 1,
+        bobPhase: this.elapsedTime * 3,
+      }));
+
+      // Highlighter boost zone
+      if (next.hz && next.hz.active) {
+        this.arenaObjects.highlighterZone = { ...next.hz };
+      } else {
+        this.arenaObjects.highlighterZone.active = false;
+      }
+
+      // Interpolate projectiles smoothly by id!
+      const prevProjMap = new Map(prev.pr.map((p) => [p.id, p]));
+      this.projectiles = next.pr.map((np) => {
+        const pp = prevProjMap.get(np.id);
+        const px = pp && Math.hypot(np.x - pp.x, np.y - pp.y) < 300 ? lerp(pp.x, np.x, alpha) : np.x;
+        const py = pp && Math.hypot(np.x - pp.x, np.y - pp.y) < 300 ? lerp(pp.y, np.y, alpha) : np.y;
+        return {
+          id: np.id,
+          ownerIndex: np.oi,
+          kind: np.k,
+          pos: { x: px, y: py },
+          vel: { x: np.vx, y: np.vy },
+          facing: np.fc,
+          angle: np.ang,
+          radius: np.r,
+          width: np.w,
+          height: np.h,
+          damage: 0,
+          knockbackX: 0,
+          knockbackY: 0,
+          color: np.col,
+          accent: np.acc,
+          life: np.life,
+          maxLife: np.ml,
+          rotation: np.rot,
+          hitIds: new Set(),
+          telegraphTime: np.tt,
+          age: np.age,
+        };
+      });
+    }
+
+    // 3. Local 60/120fps procedural skeleton, smear trails, scarf cloth, particles & camera!
+    const brokenIds = this.arenaObjects.getBrokenPlatformIds();
+    this.p1.updateVisualsOnly(realDt, this.stage.platforms, brokenIds, this.stage.worldWidth);
+    guestFighter.updateVisualsOnly(realDt, this.stage.platforms, brokenIds, this.stage.worldWidth);
+    this.fx.update(realDt, realDt, !!this.stage.hasBambooLeaves, this.stage.worldWidth);
+    this.camera.update(realDt, this.p1.pos, guestFighter.pos, false);
+    this.emitHud();
+  }
+
   public startMatch(cfg: MatchConfig): void {
+    this.lanRole = 'none';
     this.sound.unlock();
     if (this.bgm.isEnabled()) this.bgm.start();
 
@@ -782,6 +1286,11 @@ export class GameManager {
 
     this.paper.update(realDt);
 
+    if (this.lanRole === 'guest') {
+      this.tickLanGuest(realDt);
+      return;
+    }
+
     const focusEnemy = this.getPrimaryHudEnemy();
 
     if (this.hitstopTimer > 0) {
@@ -919,24 +1428,39 @@ export class GameManager {
           const choices = rollThreeBuffChoices(this.roguelikeBuffs);
           this.uiCallbacks.onRoguelikeBuffChoices(this.roguelikeWave, choices);
         } else {
-          const neededWins = 2;
+          const neededWins = this.lanRole !== 'none' ? Math.ceil(this.lanBestOf / 2) : 2;
           if (this.p1Wins >= neededWins || this.p2Wins >= neededWins) {
             this.phase = 'match_over';
             this.winnerIndex = this.p1Wins >= neededWins ? 0 : 1;
-            this.commitCareerProgress(this.winnerIndex === 0);
-            const canNext =
-              this.mode === 'arcade' &&
-              this.winnerIndex === 0 &&
-              this.arcadeStageIndex < ARCADE_MASTERS.length - 1;
-            const cleared =
-              this.mode === 'arcade' &&
-              this.winnerIndex === 0 &&
-              this.arcadeStageIndex === ARCADE_MASTERS.length - 1;
-            this.stats.koSnapshotDataUrl = this.koSnapshotDataUrl;
-            this.uiCallbacks.onMatchEnd(this.winnerIndex, this.stats, canNext, cleared);
+            if (this.lanRole === 'host') {
+              this.emitLanSnapshot();
+              this.emitLanFx({
+                kind: 'match_end',
+                winnerIdx: this.winnerIndex,
+                p1Wins: this.p1Wins,
+                p2Wins: this.p2Wins,
+                bestOf: this.lanBestOf,
+              });
+              this.lanOnMatchEnd?.(this.winnerIndex, this.p1Wins, this.p2Wins, this.lanBestOf);
+            } else {
+              this.commitCareerProgress(this.winnerIndex === 0);
+              const canNext =
+                this.mode === 'arcade' &&
+                this.winnerIndex === 0 &&
+                this.arcadeStageIndex < ARCADE_MASTERS.length - 1;
+              const cleared =
+                this.mode === 'arcade' &&
+                this.winnerIndex === 0 &&
+                this.arcadeStageIndex === ARCADE_MASTERS.length - 1;
+              this.stats.koSnapshotDataUrl = this.koSnapshotDataUrl;
+              this.uiCallbacks.onMatchEnd(this.winnerIndex, this.stats, canNext, cleared);
+            }
           } else {
             this.round++;
             this.startRound(true);
+            if (this.lanRole === 'host') {
+              this.emitLanFx({ kind: 'sfx', name: 'page_flip' });
+            }
           }
         }
       }
@@ -985,7 +1509,7 @@ export class GameManager {
       this.input.p1.aimAngle = null;
     }
 
-    const p2Fighter = this.mode === 'versus' ? this.enemies[0] : null;
+    const p2Fighter = this.mode === 'versus' && this.lanRole === 'none' ? this.enemies[0] : null;
     const p2Stick = this.input.getPlayerStickAim(1);
     if (canControl && p2Fighter && p2Stick.aimAngle !== null) {
       this.input.p2.aimDir = p2Stick.aimDir;
@@ -1022,22 +1546,24 @@ export class GameManager {
     this.enemies.forEach((enemy, idx) => {
       const inHighlighter = this.arenaObjects.isInHighlighterZone(enemy.pos);
       enemy.moveSpeedMult = inHighlighter ? 1.2 : 1.0;
-      enemy.damageMult = inHighlighter ? 1.18 : 1.0;
+      enemy.damageMult = inHighlighter ? 1.15 : 1.0;
 
       const enemyInp =
-        this.mode === 'versus' && idx === 0
-          ? this.input.p2
-          : this.enemyAis[idx].update(
-              dt,
-              enemy,
-              this.p1,
-              this.arenaObjects.pickups,
-              this.mode === 'training',
-              this.trainingDummy,
-              (trigger) => this.handleBossSkill(enemy, trigger.kind, trigger.targetX),
-              this.stage.platforms,
-              brokenIds
-            );
+        this.lanRole === 'host' && idx === 0
+          ? this.lanRemoteInput
+          : this.mode === 'versus' && idx === 0
+            ? this.input.p2
+            : this.enemyAis[idx].update(
+                dt,
+                enemy,
+                this.p1,
+                this.arenaObjects.pickups,
+                this.mode === 'training',
+                this.trainingDummy,
+                (trigger) => this.handleBossSkill(enemy, trigger.kind, trigger.targetX),
+                this.stage.platforms,
+                brokenIds
+              );
       enemy.update(
         dt,
         enemyInp,
@@ -1054,6 +1580,9 @@ export class GameManager {
 
     decayInputBuffers(this.input.p1);
     decayInputBuffers(this.input.p2);
+    if (this.lanRole === 'host') {
+      decayInputBuffers(this.lanRemoteInput);
+    }
 
     this.resolveFighterSeparations();
     this.updateProjectiles(dt);
@@ -1062,6 +1591,10 @@ export class GameManager {
       this.resolveCombat();
       this.resolvePickupsAndOrbs();
       this.checkPitfalls();
+    }
+
+    if (this.lanRole === 'host') {
+      this.emitLanSnapshot();
     }
   }
 
@@ -1142,7 +1675,9 @@ export class GameManager {
           );
           if (owner.attackKind === 'heavy' && owner.activeHeavyCastId && owner.activeHeavyCastCap > 0) {
             proj.castId = owner.activeHeavyCastId;
-            proj.castCap = owner.activeHeavyCastCap;
+            // Roguelike triple_proj buff grants +35% higher per-cast Heavy ceiling so fan barrages stay rewarding!
+            const tripleBoost = owner.index === 0 && this.hasBuff('triple_proj') ? 1.35 : 1.0;
+            proj.castCap = Math.round(owner.activeHeavyCastCap * tripleBoost);
           }
           this.projectiles.push(proj);
         }
@@ -1204,6 +1739,17 @@ export class GameManager {
         f.scarfColor,
         castDir
       );
+      this.emitLanFx({
+        kind: 'cutin',
+        fighterName: f.name,
+        icon: wDef.icon,
+        weaponName: wDef.name,
+        title: wDef.moves.super.name,
+        color: f.scarfColor,
+        facing: castDir,
+        fxX: Math.round(f.pos.x),
+        fxY: Math.round(f.pos.y),
+      });
       this.camera.punchFocus(f.pos, 1.26, 0.54);
       this.sound.setSlowMoFilter(true);
       this.slowMoTimer = 0.28;
@@ -1216,6 +1762,16 @@ export class GameManager {
     if (f.index === 0 || (this.mode === 'versus' && f.index === 1)) {
       this.input.triggerRumble(f.index === 0 ? 0 : 1, 220, 0.55, 0.78);
     }
+
+    const supCastId = f.activeSuperCastId ?? undefined;
+    const supCastCap = f.activeSuperCastCap > 0 ? f.activeSuperCastCap : Math.round(40 * f.damageMult);
+    const pushSuperProj = (p: Projectile) => {
+      if (supCastId) {
+        p.castId = supCastId;
+        p.castCap = supCastCap;
+      }
+      this.projectiles.push(p);
+    };
 
     if (f.weapon === 'ruler') {
       // 30cm STEEL RULER: Delayed straightedge paper tear rift!
@@ -1233,7 +1789,7 @@ export class GameManager {
           for (const foe of foes) {
             if (foe.action === 'ko') continue;
             if (Math.hypot(foe.pos.x - mid.x, foe.pos.y - f.pos.y) < 380) {
-              this.applyDamage(f, foe, Math.round(18 * f.damageMult), 6, castDir * 640, -340, 0.1, 34, true, foe.pos, '沿尺撕页!');
+              this.applyDamage(f, foe, Math.round(18 * f.damageMult), 6, castDir * 640, -340, 0.1, 34, true, foe.pos, '沿尺撕页!', supCastId, supCastCap);
             }
           }
         },
@@ -1254,8 +1810,8 @@ export class GameManager {
               x: f.pos.x + Math.cos(ang) * 20,
               y: f.pos.y - 48 + Math.sin(ang) * 20,
             };
-            this.projectiles.push(
-              createProjectile(f.index, 'compass_arc', spawnPos, projFacing, f.inkColor, '#1f6fd4', 0.9, ang)
+            pushSuperProj(
+              createProjectile(f.index, 'compass_arc', spawnPos, projFacing, f.inkColor, '#1f6fd4', 0.8, ang)
             );
           }
         },
@@ -1277,8 +1833,8 @@ export class GameManager {
               x: f.pos.x + Math.cos(aimBase) * 35 + perpX * offset,
               y: f.pos.y - 48 + Math.sin(aimBase) * 35 + perpY * offset,
             };
-            this.projectiles.push(
-              createProjectile(f.index, 'whiteout_beam', spawnPos, projFacing, '#ffffff', '#2685d9', 1.0, aimBase)
+            pushSuperProj(
+              createProjectile(f.index, 'whiteout_beam', spawnPos, projFacing, '#ffffff', '#2685d9', 0.9, aimBase)
             );
           }
         },
@@ -1295,7 +1851,7 @@ export class GameManager {
           this.shakeCamera(16, 0, 1);
           for (const off of [95, 220, 345]) {
             const px = clamp(f.pos.x + castDir * off, 85, this.stage.worldWidth - 85);
-            this.projectiles.push(
+            pushSuperProj(
               createProjectile(f.index, 'ink_pillar', { x: px, y: this.stage.floorY }, castDir, '#f089a4', '#4c86d6', 0.85)
             );
           }
@@ -1315,7 +1871,7 @@ export class GameManager {
           for (let i = 0; i < 6; i++) {
             const a = aimBase + (i / 6) * Math.PI * 2;
             const projFacing: 1 | -1 = Math.cos(a) >= 0 ? 1 : -1;
-            this.projectiles.push(
+            pushSuperProj(
               createProjectile(f.index, 'shuriken', { x: f.pos.x, y: f.pos.y - 48 }, projFacing, f.inkColor, '#e02f2f', 0.85, a)
             );
           }
@@ -1359,8 +1915,8 @@ export class GameManager {
       for (const off of [-0.32, 0.32, Math.PI - 0.32, Math.PI + 0.32]) {
         const ang = aimBase + off;
         const projFacing: 1 | -1 = Math.cos(ang) >= 0 ? 1 : -1;
-        this.projectiles.push(
-          createProjectile(f.index, 'boomerang', { x: f.pos.x, y: f.pos.y - 50 }, projFacing, f.inkColor, '#1f98ad', 1.0, ang)
+        pushSuperProj(
+          createProjectile(f.index, 'boomerang', { x: f.pos.x, y: f.pos.y - 50 }, projFacing, f.inkColor, '#1f98ad', 0.85, ang)
         );
       }
     } else if (f.weapon === 'scissors') {
@@ -1378,7 +1934,7 @@ export class GameManager {
           for (const foe of foes) {
             if (foe.action === 'ko') continue;
             if (Math.hypot(foe.pos.x - mid.x, foe.pos.y - f.pos.y) < 340) {
-              this.applyDamage(f, foe, Math.round(22 * f.damageMult), 7, castDir * 720, -320, 0.11, 36, true, foe.pos, '咔嚓剪断!');
+              this.applyDamage(f, foe, Math.round(20 * f.damageMult), 7, castDir * 720, -320, 0.11, 36, true, foe.pos, '咔嚓剪断!', supCastId, supCastCap);
             }
           }
         },
@@ -1398,8 +1954,8 @@ export class GameManager {
               x: f.pos.x + Math.cos(ang) * 35,
               y: f.pos.y - 46 + Math.sin(ang) * 18,
             };
-            this.projectiles.push(
-              createProjectile(f.index, 'staple_bolt', spawnPos, projFacing, '#3f506e', '#d93636', 0.9, ang)
+            pushSuperProj(
+              createProjectile(f.index, 'staple_bolt', spawnPos, projFacing, '#3f506e', '#d93636', 0.8, ang)
             );
           },
         });
@@ -1433,15 +1989,15 @@ export class GameManager {
         });
       }
     } else {
-      // GOLD-NIB FOUNTAIN PEN: Hurls 5 arcing Ink Blob Bombs along aimed direction!
+      // GOLD-NIB FOUNTAIN PEN: Hurls 5 arcing Ink Blob Bombs along aimed direction (capped safely by supCastCap!)
       this.sound.playInkSplashBomb();
       this.fx.spawnCompassRings(mid, '#d42c2c');
       const penBase = f.lastAimAngle !== null ? f.lastAimAngle : castDir > 0 ? -0.28 : Math.PI + 0.28;
       for (let k = -2; k <= 2; k++) {
         const ang = penBase + k * 0.18;
         const projFacing: 1 | -1 = Math.cos(ang) >= 0 ? 1 : -1;
-        this.projectiles.push(
-          createProjectile(f.index, 'ink_bomb', { x: f.pos.x, y: f.pos.y - 54 }, projFacing, '#141720', '#d99a1e', 0.95, ang)
+        pushSuperProj(
+          createProjectile(f.index, 'ink_bomb', { x: f.pos.x, y: f.pos.y - 54 }, projFacing, '#141720', '#d99a1e', 0.85, ang)
         );
       }
     }
@@ -1571,7 +2127,7 @@ export class GameManager {
         const atk = p.ownerIndex === 0 ? this.p1 : this.enemies[0];
         for (const def of splashTargets) {
           if (def.action !== 'ko' && Math.hypot(def.pos.x - p.pos.x, def.pos.y - p.pos.y) < 110) {
-            this.applyDamage(atk, def, Math.round(p.damage * 0.85), 3, Math.sign(def.pos.x - p.pos.x || 1) * 420, -280, 0.06, 20, false, p.pos, '墨爆!');
+            this.applyDamage(atk, def, Math.round(p.damage * 0.8), 3, Math.sign(def.pos.x - p.pos.x || 1) * 420, -280, 0.06, 20, false, p.pos, '墨爆!', p.castId, p.castCap);
           }
         }
         this.projectiles.splice(i, 1);
@@ -1730,6 +2286,8 @@ export class GameManager {
           this.sound.playClash();
           this.fx.spawnParrySparks(mid, '#f7ba2a', 26);
           this.fx.spawnPopText('对撞!!', mid, '#d97706', 1.35);
+          this.emitLanFx({ kind: 'clash', x: Math.round(mid.x), y: Math.round(mid.y) });
+          this.emitLanFx({ kind: 'pop', x: Math.round(mid.x), y: Math.round(mid.y), text: '对撞!!', color: '#d97706', scale: 1.35 });
           this.fx.triggerImpactFrame(0, mid, 0.24, 'normal');
           this.fx.blowLeaves(mid, 0);
           this.hitstopTimer = 0.11;
@@ -1810,10 +2368,11 @@ export class GameManager {
           y: def.pos.y - 46,
         };
 
-        // Balanced charge scaling: full charge grants +28% damage & +22% knockback (meaningful, never overtuned!)
+        // Balanced charge scaling + multiHit 55% per-hit split (prevents accidental 200% damage on 2-hit moves!)
         const chargeMult = atk.attackKind === 'heavy' ? 1 + atk.lastChargeRatio * 0.28 : 1;
         const chargeKb = atk.attackKind === 'heavy' ? 1 + atk.lastChargeRatio * 0.22 : 1;
-        const dmg = Math.round(move.damage * chargeMult * atk.damageMult);
+        const multiHitScale = move.multiHit && move.multiHit > 1 ? 0.55 : 1;
+        const dmg = Math.max(1, Math.round(move.damage * multiHitScale * chargeMult * atk.damageMult));
         const kbMult = atk.index === 0 && this.hasBuff('heavy_ink') ? 1.18 : 1.0;
 
         // Paperclip Chain Whip pulls target right in front of attacker!
@@ -1824,6 +2383,19 @@ export class GameManager {
 
         const extraGuardBreak =
           atk.index === 0 && atk.attackKind === 'light3' && this.hasBuff('iron_nib');
+
+        const castId =
+          atk.attackKind === 'heavy'
+            ? atk.activeHeavyCastId ?? undefined
+            : atk.attackKind === 'super'
+              ? atk.activeSuperCastId ?? undefined
+              : undefined;
+        const castCap =
+          atk.attackKind === 'heavy'
+            ? atk.activeHeavyCastCap
+            : atk.attackKind === 'super'
+              ? atk.activeSuperCastCap
+              : undefined;
 
         this.applyDamage(
           atk,
@@ -1837,8 +2409,8 @@ export class GameManager {
           !!move.guardBreak || extraGuardBreak || (atk.attackKind === 'heavy' && atk.lastChargeRatio > 0.5),
           hitPos,
           move.onomatopoeia,
-          atk.attackKind === 'heavy' ? atk.activeHeavyCastId ?? undefined : undefined,
-          atk.attackKind === 'heavy' ? atk.activeHeavyCastCap : undefined
+          castId,
+          castCap
         );
 
         // Damp attacker's forward lunge velocity on melee contact so combos feel planted & never skate past the target!
@@ -1846,12 +2418,12 @@ export class GameManager {
           atk.vel.x *= 0.32;
         }
 
-        // Roguelike Buff: 「闪电描边」 calls down comic lightning on Heavy Hits!
+        // Roguelike Buff: 「塑料尺静电雷」 calls down comic lightning on Heavy Hits (+12 independent bonus dmg)!
         if (atk.index === 0 && atk.attackKind === 'heavy' && this.hasBuff('ink_lightning') && def.hp > 0) {
           this.sound.playInkLightning();
           this.fx.spawnLightningBolt(def.pos.x, this.stage.floorY, '#f2b818');
-          def.hp = Math.max(1, def.hp - 14);
-          this.fx.spawnPopText('落雷!', { x: def.pos.x, y: def.pos.y - 95 }, '#d48c17', 1.15);
+          def.hp = Math.max(1, def.hp - 12);
+          this.fx.spawnPopText('静电雷 -12', { x: def.pos.x, y: def.pos.y - 95 }, '#d48c17', 1.05);
         }
 
         // Roguelike Buff: 「巨型图钉雨」 every 5th P1 hit rains 3 giant thumbtacks!
@@ -1883,6 +2455,8 @@ export class GameManager {
     this.timeScale = 0.35;
     this.fx.spawnPopText('残影闪!', { x: dodger.pos.x, y: dodger.pos.y - 76 }, dodger.scarfColor, 1.15);
     this.fx.spawnRing({ x: dodger.pos.x, y: dodger.pos.y - 44 }, 90, dodger.scarfColor, 3.5);
+    this.emitLanFx({ kind: 'pop', x: Math.round(dodger.pos.x), y: Math.round(dodger.pos.y - 76), text: '残影闪!', color: dodger.scarfColor, scale: 1.15 });
+    this.emitLanFx({ kind: 'sfx', name: 'dodge' });
   }
 
   private applyDamage(
@@ -1900,13 +2474,25 @@ export class GameManager {
     castId?: string,
     castCap?: number
   ): void {
-    // Enforce per-cast Heavy cap so melee + spawned projectile never double-dip into a 50+ DMG one-shot!
-    let effectiveDamage = damage;
-    if (castId && castCap && castCap > 0) {
+    // Single-player PvE AI damage scaling (Arcade & Roguelike feel fair; PvP Versus/LAN stay 100% symmetrical!)
+    let aiPvEScale = 1.0;
+    if (atk.index === 1 && def.index === 0) {
+      if (this.mode === 'arcade') {
+        aiPvEScale = this.arcadeStageIndex >= 3 ? 0.88 : 0.84;
+      } else if (this.mode === 'roguelike') {
+        aiPvEScale = atk.isBoss ? 0.82 : 0.72;
+      }
+    }
+    const scaledIncoming = Math.max(1, Math.round(damage * aiPvEScale));
+    const scaledCap = castCap && castCap > 0 ? Math.max(1, Math.round(castCap * aiPvEScale)) : castCap;
+
+    // Enforce per-cast Heavy / Super cap so melee + spawned projectiles never double-dip into a 70~120 DMG one-shot!
+    let effectiveDamage = scaledIncoming;
+    if (castId && scaledCap && scaledCap > 0) {
       const dealt = this.heavyCastDealt.get(castId) ?? 0;
-      const rem = Math.max(0, castCap - dealt);
+      const rem = Math.max(0, scaledCap - dealt);
       if (rem <= 0) return;
-      effectiveDamage = Math.min(damage, rem);
+      effectiveDamage = Math.min(scaledIncoming, rem);
     }
 
     const facingAttacker = (atk.pos.x - def.pos.x) * def.facing >= -18;
@@ -1917,16 +2503,17 @@ export class GameManager {
       def.action = 'parry_success';
       def.actionFrames = 0;
       def.parryWindowFrames = 0;
-      def.addInk(26);
+      const isPvEAi = def.index === 1 && (this.mode === 'arcade' || this.mode === 'roguelike');
+      def.addInk(isPvEAi ? 16 : 26);
       def.guardMeter = Math.min(100, def.guardMeter + 35);
 
       if (def.index === 0) {
         this.stats.p1Parries++;
         this.addStylePoints(38);
-        // Roguelike Buff: 「笔尖吸血」 heals +18 HP & releases shockwave!
+        // Roguelike Buff: 「弹反回血」 heals +16 HP & releases shockwave!
         if (this.hasBuff('parry_vamp')) {
-          def.hp = Math.min(def.maxHp, def.hp + 18);
-          this.fx.spawnPopText('+18 吸血震波!', { x: def.pos.x, y: def.pos.y - 95 }, '#1c9654', 1.1);
+          def.hp = Math.min(def.maxHp, def.hp + 16);
+          this.fx.spawnPopText('+16 弹反回血!', { x: def.pos.x, y: def.pos.y - 95 }, '#1c9654', 1.1);
           this.fx.spawnRing(def.pos, 240, '#f2a918', 6);
           for (const foe of this.enemies) {
             if (foe.action !== 'ko' && Math.hypot(foe.pos.x - def.pos.x, foe.pos.y - def.pos.y) < 260) {
@@ -1950,6 +2537,8 @@ export class GameManager {
       this.sound.playParry();
       this.fx.spawnParrySparks(hitPos, '#f2a918', 24);
       this.fx.spawnPopText('弹反!!', hitPos, '#d48200', 1.38);
+      this.emitLanFx({ kind: 'parry', x: Math.round(hitPos.x), y: Math.round(hitPos.y), color: '#f2a918' });
+      this.emitLanFx({ kind: 'pop', x: Math.round(hitPos.x), y: Math.round(hitPos.y), text: '弹反!!', color: '#d48200', scale: 1.38 });
       this.fx.triggerImpactFrame(4, hitPos, 0.26, 'parry');
       this.hitstopTimer = 0.115;
       this.shakeCamera(10);
@@ -1977,6 +2566,8 @@ export class GameManager {
         this.sound.playHit(damage, true, true);
         this.fx.spawnPaperShards(hitPos, def.scarfColor, 14);
         this.fx.spawnPopText('破防!!', hitPos, '#d92828', 1.4);
+        this.emitLanFx({ kind: 'hit', x: Math.round(hitPos.x), y: Math.round(hitPos.y), color: def.scarfColor, dmg: damage, heavy: true, guardBreak: true, dirX: Math.sign(kbX) });
+        this.emitLanFx({ kind: 'pop', x: Math.round(hitPos.x), y: Math.round(hitPos.y), text: '破防!!', color: '#d92828', scale: 1.4 });
         this.fx.triggerImpactFrame(4, hitPos, 0.28, 'parry');
         this.hitstopTimer = 0.11;
         this.shakeCamera(14, Math.sign(kbX), 0);
@@ -1994,6 +2585,8 @@ export class GameManager {
       this.sound.playBlock();
       this.fx.spawnParrySparks(hitPos, '#8fa3bf', 8);
       this.fx.spawnPopText('挡!', hitPos, '#465873', 0.9);
+      this.emitLanFx({ kind: 'sfx', name: 'block' });
+      this.emitLanFx({ kind: 'pop', x: Math.round(hitPos.x), y: Math.round(hitPos.y), text: '挡!', color: '#465873', scale: 0.9 });
       this.hitstopTimer = 0.04;
       this.shakeCamera(5, Math.sign(kbX), 0);
       return;
@@ -2064,6 +2657,9 @@ export class GameManager {
       this.fx.spawnInkBurst(hitPos, def.inkColor, 34, Math.sign(kbX), -0.4, 520);
       this.fx.spawnInkBurst(hitPos, def.scarfColor, 18, Math.sign(kbX), -0.3, 460);
       this.fx.spawnPopText('绝杀!', hitPos, '#cc1f1f', 1.65);
+      this.emitLanFx({ kind: 'hit', x: Math.round(hitPos.x), y: Math.round(hitPos.y), color: def.inkColor, dmg: Math.round(damage * 1.4), heavy: true, guardBreak: true, dirX: Math.sign(kbX), dirY: -0.4 });
+      this.emitLanFx({ kind: 'pop', x: Math.round(hitPos.x), y: Math.round(hitPos.y), text: '绝杀!', color: '#cc1f1f', scale: 1.65 });
+      this.emitLanFx({ kind: 'sfx', name: 'tear' });
       this.fx.triggerImpactFrame(8, hitPos, 0.55, 'ko');
       this.hitstopTimer = 0.16;
       this.shakeCamera(20, Math.sign(kbX), -0.4);
@@ -2117,6 +2713,24 @@ export class GameManager {
     this.fx.spawnInkBurst(hitPos, def.inkColor, isHeavy ? 18 : 9, Math.sign(kbX), -0.25, isHeavy ? 420 : 280);
     this.fx.spawnRing(hitPos, isHeavy ? 96 : 56, isHeavy ? atk.scarfColor : atk.inkColor, isHeavy ? 4.5 : 2.8);
     this.fx.spawnPopText(ono, hitPos, isHeavy ? '#c92222' : atk.inkColor, isHeavy ? 1.3 : 1.0);
+    this.emitLanFx({
+      kind: 'hit',
+      x: Math.round(hitPos.x),
+      y: Math.round(hitPos.y),
+      color: isHeavy ? atk.scarfColor : def.inkColor,
+      dmg: effectiveDamage,
+      heavy: isHeavy,
+      dirX: Math.sign(kbX),
+      dirY: Math.sign(kbY) * 0.3,
+    });
+    this.emitLanFx({
+      kind: 'pop',
+      x: Math.round(hitPos.x),
+      y: Math.round(hitPos.y),
+      text: ono,
+      color: isHeavy ? '#c92222' : atk.inkColor,
+      scale: isHeavy ? 1.3 : 1.0,
+    });
 
     if (isHeavy) {
       this.fx.triggerImpactFrame(0, hitPos, 0.2, 'normal');
@@ -2278,7 +2892,7 @@ export class GameManager {
     this.uiCallbacks.onHudUpdate({
       mode: this.mode,
       round: this.round,
-      maxRounds: 3,
+      maxRounds: this.lanRole !== 'none' ? this.lanBestOf : 3,
       p1Wins: this.p1Wins,
       p2Wins: this.p2Wins,
       timer: Math.ceil(this.roundTimer),
@@ -2339,8 +2953,8 @@ export class GameManager {
 
   private renderFrame(): void {
     const p1MouseAim = this.input.doesPlayerUseMouseAim(0);
-    const p2MouseAim = this.mode === 'versus' && this.input.doesPlayerUseMouseAim(1);
-    const mouseOwner: 0 | 1 = p1MouseAim ? 0 : 1;
+    const p2MouseAim = this.mode === 'versus' && this.lanRole === 'none' && this.input.doesPlayerUseMouseAim(1);
+    const mouseOwner: 0 | 1 = this.lanRole === 'guest' ? 1 : p1MouseAim ? 0 : 1;
     const showAimReticle =
       (p1MouseAim || p2MouseAim) &&
       this.input.mouseHasMoved &&
@@ -2354,9 +2968,10 @@ export class GameManager {
     if (this.phase === 'fighting' && !this.paused) {
       const s1 = this.input.getPlayerStickAim(0);
       if (s1.aimAngle !== null) {
-        stickAimIndicators.push({ fighter: this.p1, angle: s1.aimAngle });
+        const localOwner = this.lanRole === 'guest' && this.enemies[0] ? this.enemies[0] : this.p1;
+        stickAimIndicators.push({ fighter: localOwner, angle: s1.aimAngle });
       }
-      if (this.mode === 'versus' && this.enemies[0]) {
+      if (this.mode === 'versus' && this.lanRole === 'none' && this.enemies[0]) {
         const s2 = this.input.getPlayerStickAim(1);
         if (s2.aimAngle !== null) {
           stickAimIndicators.push({ fighter: this.enemies[0], angle: s2.aimAngle });
