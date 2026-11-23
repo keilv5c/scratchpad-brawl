@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>InkbladeDuel</AssemblyName>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <Product>草稿纸大乱斗</Product>
     <Description>手绘火柴人 12 大文具兵器 &amp; 几何乱斗格斗游戏（支持局域网联机与热更新）</Description>
   </PropertyGroup>

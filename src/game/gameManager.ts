@@ -1085,6 +1085,7 @@ export class GameManager {
 
     this.projectiles = [];
     this.delayedEvents = [];
+    this.heavyCastDealt.clear();
     this.input.clearAll();
     this.fx.reset();
     this.camera.reset();
@@ -1155,6 +1156,7 @@ export class GameManager {
 
     this.projectiles = [];
     this.delayedEvents = [];
+    this.heavyCastDealt.clear();
     this.input.clearAll();
     this.fx.reset();
     this.camera.setWorldSize(this.stage.worldWidth, this.stage.worldHeight);
@@ -1349,8 +1351,9 @@ export class GameManager {
         if (this.p1.pos.y > this.stage.worldHeight + 40) this.p1.resetForRound({ ...this.stage.spawnP1 }, 1);
         if (e0.pos.y > this.stage.worldHeight + 40) e0.resetForRound({ ...this.stage.spawnP2 }, -1);
 
-        const aiInp1 = this.demoAiP1.update(dt, this.p1, e0, [], false, 'spar', undefined, this.stage.platforms, broken);
-        const aiInp2 = this.enemyAis[0].update(dt, e0, this.p1, [], false, 'spar', undefined, this.stage.platforms, broken);
+        const stageBounds = { floorY: this.stage.floorY, worldWidth: this.stage.worldWidth, pitKillY: this.stage.pitKillY };
+        const aiInp1 = this.demoAiP1.update(dt, this.p1, e0, [], false, 'spar', undefined, this.stage.platforms, broken, stageBounds);
+        const aiInp2 = this.enemyAis[0].update(dt, e0, this.p1, [], false, 'spar', undefined, this.stage.platforms, broken, stageBounds);
         const cb = this.makeFighterCallbacks();
         // Mute combat sfx subtly? SoundEngine stays silent until first click anyway!
         this.p1.update(dt, aiInp1, e0, this.stage.platforms, broken, this.sound, cb, true, this.stage.worldWidth, this.stage.updraftZones);
@@ -1483,7 +1486,8 @@ export class GameManager {
         this.projectiles.push(
           createProjectile(1, 'stapler_hazard', { x: staplerX, y: this.stage.floorY }, 1, '#2b3242', '#d93636', 0.5)
         );
-      }
+      },
+      this.stage.pitKillY !== undefined
     );
 
     this.syncP1Modifiers();
@@ -1543,6 +1547,7 @@ export class GameManager {
     );
 
     // Update every enemy
+    const stageBounds = { floorY: this.stage.floorY, worldWidth: this.stage.worldWidth, pitKillY: this.stage.pitKillY };
     this.enemies.forEach((enemy, idx) => {
       const inHighlighter = this.arenaObjects.isInHighlighterZone(enemy.pos);
       enemy.moveSpeedMult = inHighlighter ? 1.2 : 1.0;
@@ -1562,7 +1567,8 @@ export class GameManager {
                 this.trainingDummy,
                 (trigger) => this.handleBossSkill(enemy, trigger.kind, trigger.targetX),
                 this.stage.platforms,
-                brokenIds
+                brokenIds,
+                stageBounds
               );
       enemy.update(
         dt,
@@ -2551,22 +2557,26 @@ export class GameManager {
 
     // 2. REGULAR BLOCK / GUARD BREAK
     if (isBlocking) {
-      def.guardMeter -= damage * (guardBreak ? 2.8 : 1.45);
+      def.guardMeter -= effectiveDamage * (guardBreak ? 2.8 : 1.45);
       if (guardBreak || def.guardMeter <= 0) {
         def.guardMeter = 0;
         def.action = 'guard_break';
         def.actionFrames = 0;
         def.hitstunFrames = 44;
-        def.hp = Math.max(1, def.hp - Math.round(damage * 0.5));
+        const gbBleed = Math.round(effectiveDamage * 0.5);
+        if (castId && scaledCap && scaledCap > 0) {
+          this.heavyCastDealt.set(castId, (this.heavyCastDealt.get(castId) ?? 0) + gbBleed);
+        }
+        def.hp = Math.max(1, def.hp - gbBleed);
         def.vel.x = kbX * 0.55;
         def.vel.y = -180;
         atk.addInk(18);
         if (atk.index === 0) this.addStylePoints(26);
 
-        this.sound.playHit(damage, true, true);
+        this.sound.playHit(effectiveDamage, true, true);
         this.fx.spawnPaperShards(hitPos, def.scarfColor, 14);
         this.fx.spawnPopText('破防!!', hitPos, '#d92828', 1.4);
-        this.emitLanFx({ kind: 'hit', x: Math.round(hitPos.x), y: Math.round(hitPos.y), color: def.scarfColor, dmg: damage, heavy: true, guardBreak: true, dirX: Math.sign(kbX) });
+        this.emitLanFx({ kind: 'hit', x: Math.round(hitPos.x), y: Math.round(hitPos.y), color: def.scarfColor, dmg: effectiveDamage, heavy: true, guardBreak: true, dirX: Math.sign(kbX) });
         this.emitLanFx({ kind: 'pop', x: Math.round(hitPos.x), y: Math.round(hitPos.y), text: '破防!!', color: '#d92828', scale: 1.4 });
         this.fx.triggerImpactFrame(4, hitPos, 0.28, 'parry');
         this.hitstopTimer = 0.11;

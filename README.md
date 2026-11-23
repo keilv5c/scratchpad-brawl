@@ -1,7 +1,7 @@
 # 草稿纸大乱斗 · Scratchpad & Geometry Brawl
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-v0.4.0-ff7a1a.svg)](https://github.com/keilv5c/scratchpad-brawl/releases)
+[![Version](https://img.shields.io/badge/Version-v0.4.1-ff7a1a.svg)](https://github.com/keilv5c/scratchpad-brawl/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20x64%20%7C%20Web-141418.svg)](#快速开始)
 
 一款纯手绘矢量 / Canvas 2D + Web Audio 程序化音效打造的 Windows 火柴人格斗乱斗游戏，内置两大独立玩法模式：
@@ -57,7 +57,7 @@
 ## 快速开始
 
 ### 方式一：直接下载 Windows 便携版（推荐）
-1. 前往 [Releases](https://github.com/keilv5c/scratchpad-brawl/releases) 下载最新 `ScratchpadBrawl-v0.4.0-win-x64.zip`。
+1. 前往 [Releases](https://github.com/keilv5c/scratchpad-brawl/releases) 下载最新 `ScratchpadBrawl-v0.4.1-win-x64.zip`。
 2. 解压到任意英文或中文目录，双击 **`InkbladeDuel.exe`** 即可开玩（首次开启局域网联机若弹出 Windows 防火墙提示，勾选「专用网络」允许即可）。
 3. **运行环境要求**：Windows 10 / 11（64 位），需已安装 [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) 与系统自带的 Microsoft Edge WebView2。
 

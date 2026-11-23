@@ -3,7 +3,7 @@
   "description": "草稿纸大乱斗 & 几何乱斗 (Scratchpad & Geometry Brawl) — Windows stickman brawler built with TypeScript, HTML5 Canvas 2D, Web Audio, and .NET 8 WebView2",
   "author": "可乐加冰 (keilv5c) & Gemini",
   "license": "MIT",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "repository": {
     "type": "git",

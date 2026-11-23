@@ -87,8 +87,8 @@ export class ArenaObjectManager {
   private eventTimer = 8.5;
 
   public reset(crateSpawns: Vec2[], platforms: PlatformDef[]): void {
-    this.crates = crateSpawns.map((s) => ({
-      id: `crate_${objIdCounter++}`,
+    this.crates = crateSpawns.map((s, idx) => ({
+      id: `crate_${idx}`,
       pos: { x: s.x, y: s.y },
       w: 44,
       h: 44,
@@ -215,7 +215,8 @@ export class ArenaObjectManager {
     worldWidth: number,
     worldHeight: number,
     onPencilSound: () => void,
-    onStaplerEvent?: (x: number) => void
+    onStaplerEvent?: (x: number) => void,
+    hasPitfall = false
   ): void {
     // Move Origami Paper Airplane platforms & Vertical Elevators!
     for (const p of platforms) {
@@ -243,7 +244,8 @@ export class ArenaObjectManager {
       this.eventTimer -= dt;
       if (this.eventTimer <= 0) {
         this.eventTimer = 10 + Math.random() * 5;
-        const margin = 190;
+        // Keep events cleanly inside solid floor/deck bounds on stages with side pits/ink sea!
+        const margin = hasPitfall ? 340 : 190;
         const span = Math.max(200, worldWidth - margin * 2 - 250);
         if (Math.random() < 0.55) {
           this.highlighterZone = {

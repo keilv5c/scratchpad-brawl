@@ -1,7 +1,7 @@
 ﻿param(
   [switch]$RebuildShell,
-  [string]$Version = "0.4.0",
-  [string]$Notes = "v0.4.0: Full balance overhaul (Arcade Stage 4/5, Roguelike waves/buffs, all 12 weapons & Geometry Trial Stage 4/5) + Native Zero-Stutter 2-Device Windows LAN Multiplayer (TCP_NODELAY + UDP auto-discovery) for BOTH Scratchpad Brawl & Geometry Brawl"
+  [string]$Version = "0.4.1",
+  [string]$Notes = "v0.4.1 hotfix: Fix AI infinite bouncing loop on elevated platforms in large stages (dynamic stage floorY/pitKillY + AI input buffer decay), fix guard-break PvE/cap scaling, fix Euclid 4D Tesseract keyboard aim, deterministic LAN crate IDs, and LAN UDP reuse polish"
 )
 
 $ErrorActionPreference = "Stop"

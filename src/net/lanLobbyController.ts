@@ -324,7 +324,7 @@ export class LanLobbyController {
     this.renderRoomUi();
     this.showStatus(`已成功连接至房主 ${this.localRoomAddr}！选择你的武器/学派后点击「准备就绪」。`);
 
-    this.client.send({ t: 'hello', name: nick, version: '0.4.0' }, false);
+    this.client.send({ t: 'hello', name: nick, version: '0.4.1' }, false);
     this.client.send(
       {
         t: 'guest_pick',

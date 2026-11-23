@@ -2126,9 +2126,9 @@ export class MathGameManager {
           fn: () => {
             if (this.phase !== 'fighting') return;
             this.synth.playTesseractPulse();
-            // Respect explicit mouse aimAngle; otherwise sweep downward along castDir toward grounded targets
+            // Respect explicit mouse/stick aimAngle; otherwise sweep downward along castDir toward grounded targets!
             let waveBase = aimBase;
-            if (inp.aimAngle === undefined) {
+            if (inp.aimAngle == null) {
               const dx = Math.sign(opp.pos.x - center.x) === castDir && Math.abs(opp.pos.x - center.x) > 36
                 ? opp.pos.x - center.x
                 : castDir * 220;
@@ -2792,9 +2792,10 @@ export class MathGameManager {
       this.aiClimbTargetY = null;
     }
 
-    // Mid-air double-jump follow-up when climbing to clear higher math bars (Jump #1 peaks ~126px, bars are ~165px!)
+    // Mid-air double-jump follow-up when climbing to clear higher math bars (never trigger mid-drop!)
     if (
       !this.p2.onGround &&
+      this.p2.dropThroughFrames <= 0 &&
       this.p2.jumpsLeft > 0 &&
       this.p2.vel.y > -120 &&
       (dy < -12 || (this.aiClimbTargetY !== null && this.p2.pos.y > this.aiClimbTargetY - 8))

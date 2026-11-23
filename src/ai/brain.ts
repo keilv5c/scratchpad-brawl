@@ -1,5 +1,5 @@
 import { ArcadeMaster, InputState, PlatformDef, TrainingDummyMode } from '../types';
-import { createEmptyInput } from '../engine/input';
+import { createEmptyInput, decayInputBuffers } from '../engine/input';
 import { Fighter } from '../combat/fighter';
 import { WeaponPickup } from '../combat/arenaObjects';
 import { WEAPONS } from '../config/weapons';
@@ -7,6 +7,12 @@ import { WEAPONS } from '../config/weapons';
 export interface BossAbilityTrigger {
   kind: 'spikes' | 'eraser';
   targetX: number;
+}
+
+export interface AiStageBounds {
+  floorY: number;
+  worldWidth: number;
+  pitKillY?: number;
 }
 
 export class AiBrain {
@@ -49,9 +55,11 @@ export class AiBrain {
     dummyMode: TrainingDummyMode,
     onBossSkill?: (trigger: BossAbilityTrigger) => void,
     platforms: PlatformDef[] = [],
-    brokenPlatforms?: Set<string>
+    brokenPlatforms?: Set<string>,
+    stageBounds?: AiStageBounds
   ): InputState {
-    // Clear one-frame edge buffers before writing new decisions
+    // Decay buffered presses cleanly every frame so stale jump/attack presses never fire unexpectedly!
+    decayInputBuffers(this.input);
     this.input.left = false;
     this.input.right = false;
     this.input.up = false;
@@ -59,7 +67,6 @@ export class AiBrain {
     this.input.light = false;
     this.input.dash = false;
     this.input.superBtn = false;
-    if (this.input.dropThroughPressed > 0) this.input.dropThroughPressed--;
     if (this.platformActionCd > 0) this.platformActionCd -= dt;
 
     // Training dummy specialized behaviors
@@ -170,11 +177,19 @@ export class AiBrain {
       }
     }
 
-    // Avoid pitfall gaps (only when actually falling below floor level y > 658, never on normal jumps!)
-    if (self.pos.y > 658 && self.vel.y > 0 && !self.onGround && self.jumpsLeft > 0) {
+    // Avoid pitfall gaps ONLY on stages that actually have a pitfall (pitKillY) and ONLY after falling below real floorY!
+    const pitFloorY = stageBounds?.floorY ?? 650;
+    const stageMidX = (stageBounds?.worldWidth ?? 1440) * 0.5;
+    if (
+      stageBounds?.pitKillY !== undefined &&
+      self.pos.y > pitFloorY + 24 &&
+      self.vel.y > 0 &&
+      !self.onGround &&
+      self.jumpsLeft > 0
+    ) {
       this.input.up = true;
       this.input.jumpPressed = 6;
-      if (self.pos.x < 640) this.input.right = true;
+      if (self.pos.x < stageMidX) this.input.right = true;
       else this.input.left = true;
       return this.input;
     }
@@ -184,9 +199,10 @@ export class AiBrain {
       this.climbTargetY = null;
     }
 
-    // Mid-air double-jump follow-up when climbing up to clear a platform (Jump #1 peaks ~120px, platforms are ~150px!)
+    // Mid-air double-jump follow-up when climbing up to clear a platform (never trigger during an intentional drop-through!)
     if (
       !self.onGround &&
+      self.dropThroughFrames <= 0 &&
       self.jumpsLeft > 0 &&
       self.vel.y > -120 &&
       (dy < -12 || (this.climbTargetY !== null && self.pos.y > this.climbTargetY - 8))

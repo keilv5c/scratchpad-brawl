@@ -240,7 +240,7 @@ internal sealed class LanManager : IDisposable
                         hostIp = primaryIp,
                         port = _hostPort,
                         mode = _hostMode,
-                        version = "0.4.0"
+                        version = "0.4.1"
                     });
                     var bytes = Encoding.UTF8.GetBytes(beaconJson);
 
@@ -270,6 +270,7 @@ internal sealed class LanManager : IDisposable
             try
             {
                 udp = new UdpClient();
+                udp.ExclusiveAddressUse = false;
                 udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 udp.Client.Bind(new IPEndPoint(IPAddress.Any, DiscoveryUdpPort));
             }
@@ -375,9 +376,9 @@ internal sealed class LanManager : IDisposable
         var client = new TcpClient();
         try
         {
-            ConfigureLowLatencySocket(client);
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             await client.ConnectAsync(host, port, timeoutCts.Token);
+            ConfigureLowLatencySocket(client);
             AttachPeer(client, isHost: false);
             StopScanning();
             EmitJson(new { type = "lan:connected", host, port });
